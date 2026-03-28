@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: jobflow_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     jobflow
+      POSTGRES_PASSWORD: jobflow_dev
+      POSTGRES_DB:       jobflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Auto-apply schema on first boot
+      - ./db/postgres_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobflow -d jobflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

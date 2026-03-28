@@ -5,6 +5,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { authService, type SignupRequest } from "../services/auth.service";
 
 export interface User {
   id: string;
@@ -30,16 +31,11 @@ type AuthAction =
   | { type: "LOGOUT" }
   | { type: "UPDATE_USER"; payload: Partial<User> };
 
-export interface SignupData {
-  firstName: string;
-  lastName: string;
-  email: string;
-  password: string;
-}
+export type { SignupRequest };
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
-  signup: (data: SignupData) => Promise<void>;
+  signup: (data: SignupRequest) => Promise<void>;
   logout: () => void;
   updateUser: (data: Partial<User>) => void;
   isAuthenticated: boolean;
@@ -104,52 +100,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     dispatch({ type: "AUTH_START" });
     try {
-      // Simulates POST /api/auth/login — replace body with api.post() for real backend
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
-      if (!email || password.length < 8) {
-        throw new Error("Invalid email or password.");
-      }
-
-      const user: User = {
-        id: crypto.randomUUID(),
-        email,
-        firstName: "John",
-        lastName: "Doe",
-        plan: "pro",
-        aiCredits: 750,
-        totalCredits: 1000,
-        location: "San Francisco, CA",
-      };
-      const token = `jwt_${Date.now()}_${crypto.randomUUID()}`;
-
-      saveSession(user, token);
-      dispatch({ type: "AUTH_SUCCESS", payload: { user, token } });
+      const { token, user } = await authService.login({ email, password });
+      saveSession(user as User, token);
+      dispatch({ type: "AUTH_SUCCESS", payload: { user: user as User, token } });
     } catch (err) {
       dispatch({ type: "AUTH_ERROR" });
       throw err;
     }
   }, []);
 
-  const signup = useCallback(async (data: SignupData) => {
+  const signup = useCallback(async (data: SignupRequest) => {
     dispatch({ type: "AUTH_START" });
     try {
-      // Simulates POST /api/auth/signup — replace with api.post() for real backend
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      const user: User = {
-        id: crypto.randomUUID(),
-        email: data.email,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        plan: "free",
-        aiCredits: 100,
-        totalCredits: 100,
-      };
-      const token = `jwt_${Date.now()}_${crypto.randomUUID()}`;
-
-      saveSession(user, token);
-      dispatch({ type: "AUTH_SUCCESS", payload: { user, token } });
+      const { token, user } = await authService.signup(data);
+      saveSession(user as User, token);
+      dispatch({ type: "AUTH_SUCCESS", payload: { user: user as User, token } });
     } catch (err) {
       dispatch({ type: "AUTH_ERROR" });
       throw err;
@@ -157,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    authService.logout(); // fire-and-forget to revoke server session
     clearSession();
     dispatch({ type: "LOGOUT" });
   }, []);

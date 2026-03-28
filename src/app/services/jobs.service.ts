@@ -1,28 +1,25 @@
 /**
- * Jobs service
+ * Jobs service — real API calls.
  *
- * Wraps all job-related API endpoints. Currently uses in-memory mock data.
- * Replace each function body with the commented-out api call when a real
- * backend is available.
- *
- * Real endpoints (see architecture doc §11):
- *   GET    /api/jobs
- *   GET    /api/jobs/:id
- *   POST   /api/jobs/import-link
- *   POST   /api/jobs/:id/score
- *   POST   /api/jobs/:id/generate-resume
- *   POST   /api/jobs/:id/generate-cover-letter
+ * Endpoints (backend/src/routes/jobs.ts):
+ *   GET  /api/jobs
+ *   GET  /api/jobs/:id
+ *   POST /api/jobs/import-link
+ *   POST /api/jobs/:id/score
+ *   POST /api/jobs/:id/generate-resume
+ *   POST /api/jobs/:id/generate-cover-letter
  */
-
-// import { api } from "./api";
-import { mockJobs, type Job } from "../data/mockData";
+import { api } from "./api";
+import type { Job } from "../data/mockData";
 
 export interface JobsFilter {
-  status?: string;
-  minScore?: number;
-  source?: string;
   query?: string;
+  minScore?: number;
+  status?: string;
+  source?: string;
   remoteOnly?: boolean;
+  page?: number;
+  limit?: number;
 }
 
 export interface ScoreResult {
@@ -39,90 +36,31 @@ export interface GenerateResumeResult {
 }
 
 export const jobsService = {
-  getJobs: async (filter?: JobsFilter): Promise<Job[]> => {
-    // return api.get<Job[]>("/jobs?" + new URLSearchParams(filter as Record<string, string>));
-    await delay(300);
-    let jobs = [...mockJobs];
-
-    if (filter?.query) {
-      const q = filter.query.toLowerCase();
-      jobs = jobs.filter(
-        (j) =>
-          j.title.toLowerCase().includes(q) ||
-          j.company.toLowerCase().includes(q) ||
-          j.description.toLowerCase().includes(q)
-      );
-    }
-    if (filter?.minScore !== undefined) {
-      jobs = jobs.filter((j) => j.score >= filter.minScore!);
-    }
-    if (filter?.status && filter.status !== "all") {
-      jobs = jobs.filter((j) => j.status === filter.status);
-    }
-    if (filter?.source) {
-      jobs = jobs.filter((j) => j.source === filter.source);
-    }
-    if (filter?.remoteOnly) {
-      jobs = jobs.filter(
-        (j) =>
-          j.location.toLowerCase().includes("remote") ||
-          j.tags.some((t) => t.toLowerCase() === "remote")
-      );
-    }
-
-    return jobs;
+  getJobs: (filter?: JobsFilter): Promise<Job[]> => {
+    const params = new URLSearchParams();
+    if (filter?.query) params.set("query", filter.query);
+    if (filter?.minScore !== undefined) params.set("minScore", String(filter.minScore));
+    if (filter?.status && filter.status !== "all") params.set("status", filter.status);
+    if (filter?.source) params.set("source", filter.source);
+    if (filter?.remoteOnly) params.set("remoteOnly", "true");
+    if (filter?.page) params.set("page", String(filter.page));
+    if (filter?.limit) params.set("limit", String(filter.limit));
+    const qs = params.toString();
+    return api.get<Job[]>(`/jobs${qs ? `?${qs}` : ""}`);
   },
 
-  getJob: async (id: string): Promise<Job | null> => {
-    // return api.get<Job>(`/jobs/${id}`);
-    await delay(200);
-    return mockJobs.find((j) => j.id === id) ?? null;
-  },
+  getJob: (id: string): Promise<Job> =>
+    api.get<Job>(`/jobs/${id}`),
 
-  importLink: async (url: string): Promise<{ jobId: string }> => {
-    // return api.post<{ jobId: string }>("/jobs/import-link", { url });
-    await delay(1500);
-    return { jobId: `imported_${Date.now()}` };
-  },
+  importLink: (url: string): Promise<{ jobId: string }> =>
+    api.post<{ jobId: string }>("/jobs/import-link", { url }),
 
-  scoreJob: async (jobId: string): Promise<ScoreResult> => {
-    // return api.post<ScoreResult>(`/jobs/${jobId}/score`, {});
-    await delay(2000);
-    const score = Math.floor(Math.random() * 30) + 70;
-    return {
-      score,
-      recommendation: score >= 70 ? "strong_fit" : score >= 50 ? "maybe" : "reject",
-      strengths: [
-        "Strong alignment with required skills",
-        "Relevant domain experience",
-        "Location match",
-      ],
-      gaps: [
-        "Could emphasize leadership experience",
-        "Add specific metrics to resume",
-      ],
-      explanation: `This role scored ${score}/100 based on your profile analysis.`,
-    };
-  },
+  scoreJob: (jobId: string): Promise<ScoreResult> =>
+    api.post<ScoreResult>(`/jobs/${jobId}/score`, {}),
 
-  generateResume: async (jobId: string): Promise<GenerateResumeResult> => {
-    // return api.post<GenerateResumeResult>(`/jobs/${jobId}/generate-resume`, {});
-    await delay(3000);
-    return {
-      resumeId: `resume_${jobId}_${Date.now()}`,
-      downloadUrl: "#",
-    };
-  },
+  generateResume: (jobId: string): Promise<GenerateResumeResult> =>
+    api.post<GenerateResumeResult>(`/jobs/${jobId}/generate-resume`, {}),
 
-  generateCoverLetter: async (jobId: string): Promise<{ content: string }> => {
-    // return api.post<{ content: string }>(`/jobs/${jobId}/generate-cover-letter`, {});
-    await delay(2500);
-    return {
-      content: `Dear Hiring Manager,\n\nI am excited to apply for this position...`,
-    };
-  },
+  generateCoverLetter: (jobId: string): Promise<{ content: string }> =>
+    api.post<{ content: string }>(`/jobs/${jobId}/generate-cover-letter`, {}),
 };
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}

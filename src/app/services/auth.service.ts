@@ -1,19 +1,16 @@
 /**
- * Auth service
+ * Auth service — real API calls.
+ * All requests go through the shared api client which attaches the Bearer
+ * token and handles 401 redirects automatically.
  *
- * Wraps all authentication API endpoints. Currently uses mock responses so
- * the frontend works without a backend. Replace each function body with the
- * commented-out api call when a real backend is available.
- *
- * Real endpoints (see architecture doc §11):
+ * Endpoints (backend/src/routes/auth.ts):
  *   POST /api/auth/signup
  *   POST /api/auth/login
  *   POST /api/auth/logout
  *   POST /api/auth/forgot-password
  *   POST /api/auth/reset-password
  */
-
-// import { api } from "./api";
+import { api } from "./api";
 
 export interface LoginRequest {
   email: string;
@@ -46,60 +43,23 @@ export interface AuthResponse {
     plan: "free" | "pro" | "agency";
     aiCredits: number;
     totalCredits: number;
+    location?: string;
   };
 }
 
 export const authService = {
-  login: async (_data: LoginRequest): Promise<AuthResponse> => {
-    // return api.post<AuthResponse>("/auth/login", data);
-    await delay(800);
-    return mockAuthResponse(_data.email);
-  },
+  login: (data: LoginRequest): Promise<AuthResponse> =>
+    api.post<AuthResponse>("/auth/login", data),
 
-  signup: async (_data: SignupRequest): Promise<AuthResponse> => {
-    // return api.post<AuthResponse>("/auth/signup", data);
-    await delay(1000);
-    return mockAuthResponse(_data.email, _data.firstName, _data.lastName, "free");
-  },
+  signup: (data: SignupRequest): Promise<AuthResponse> =>
+    api.post<AuthResponse>("/auth/signup", data),
 
-  logout: async (): Promise<void> => {
-    // return api.post<void>("/auth/logout", {});
-    await delay(200);
-  },
+  logout: (): Promise<void> =>
+    api.post<void>("/auth/logout", {}).catch(() => {}),
 
-  forgotPassword: async (_data: ForgotPasswordRequest): Promise<{ message: string }> => {
-    // return api.post<{ message: string }>("/auth/forgot-password", data);
-    await delay(700);
-    return { message: "Password reset instructions sent to your email." };
-  },
+  forgotPassword: (data: ForgotPasswordRequest): Promise<{ message: string }> =>
+    api.post<{ message: string }>("/auth/forgot-password", data),
 
-  resetPassword: async (_data: ResetPasswordRequest): Promise<{ message: string }> => {
-    // return api.post<{ message: string }>("/auth/reset-password", data);
-    await delay(700);
-    return { message: "Password has been reset successfully." };
-  },
+  resetPassword: (data: ResetPasswordRequest): Promise<{ message: string }> =>
+    api.post<{ message: string }>("/auth/reset-password", data),
 };
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function mockAuthResponse(
-  email: string,
-  firstName = "John",
-  lastName = "Doe",
-  plan: "free" | "pro" | "agency" = "pro"
-): AuthResponse {
-  return {
-    token: `jwt_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-    user: {
-      id: crypto.randomUUID(),
-      email,
-      firstName,
-      lastName,
-      plan,
-      aiCredits: plan === "free" ? 100 : 750,
-      totalCredits: plan === "free" ? 100 : 1000,
-    },
-  };
-}
