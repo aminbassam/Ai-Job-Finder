@@ -3,6 +3,7 @@ import { Card } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { LocationInput } from "../components/ui/location-input";
 import { Textarea } from "../components/ui/textarea";
 import { Button } from "../components/ui/button";
 import { Switch } from "../components/ui/switch";
@@ -74,10 +75,7 @@ export function Settings() {
               </div>
               <div>
                 <Label className="text-[13px] text-[#9CA3AF] mb-2 block">Location</Label>
-                <Input
-                  defaultValue="San Francisco, CA"
-                  className="bg-[#0B0F14] border-[#1F2937] text-white"
-                />
+                <LocationInput placeholder="e.g. San Francisco, CA" />
               </div>
               <div>
                 <Label className="text-[13px] text-[#9CA3AF] mb-2 block">Job Title</Label>

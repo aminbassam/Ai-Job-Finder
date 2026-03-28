@@ -7,6 +7,7 @@ import { Badge } from "../components/ui/badge";
 import { Switch } from "../components/ui/switch";
 import { Label } from "../components/ui/label";
 import { Slider } from "../components/ui/slider";
+import { LocationInput } from "../components/ui/location-input";
 
 export function SearchJobs() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -105,10 +106,7 @@ export function SearchJobs() {
             <div className="space-y-4">
               <div>
                 <Label className="text-[13px] text-[#9CA3AF] mb-2 block">Preferred Location</Label>
-                <Input
-                  placeholder="e.g., San Francisco, Remote"
-                  className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#9CA3AF]"
-                />
+                <LocationInput placeholder="e.g. San Francisco, Remote" />
               </div>
               <div className="flex items-center justify-between">
                 <Label className="text-[13px] text-white">Remote Only</Label>
