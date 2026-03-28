@@ -17,6 +17,7 @@ import activityRouter    from "./routes/activity";
 import analyticsRouter   from "./routes/analytics";
 import settingsRouter    from "./routes/settings";
 import documentsRouter   from "./routes/documents";
+import adminRouter       from "./routes/admin";
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
@@ -55,6 +56,7 @@ app.use("/api/activity",     activityRouter);
 app.use("/api/analytics",    analyticsRouter);
 app.use("/api/settings",     settingsRouter);
 app.use("/api/documents",    documentsRouter);
+app.use("/api/admin",        adminRouter);
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
@@ -82,6 +84,7 @@ async function applyMigrations() {
   const ROOT = join(__dirname, "../../");
   const migrations = [
     join(ROOT, "db/migrations/001_email_verification.sql"),
+    join(ROOT, "db/migrations/002_admin_role.sql"),
   ];
   const client = await pool.connect();
   try {

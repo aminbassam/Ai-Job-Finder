@@ -242,8 +242,8 @@ async function seed() {
 
     const { rows: adminRows } = await pool.query(
       `INSERT INTO account_users
-         (email, password_hash, first_name, last_name, email_verified_at)
-       VALUES ($1, $2, 'Super', 'Admin', NOW())
+         (email, password_hash, first_name, last_name, email_verified_at, is_admin)
+       VALUES ($1, $2, 'Super', 'Admin', NOW(), true)
        RETURNING id`,
       [ADMIN_EMAIL, passwordHash]
     );

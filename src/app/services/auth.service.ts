@@ -45,6 +45,7 @@ export interface AuthResponse {
     totalCredits: number;
     location?: string;
     emailVerified: boolean;
+    isAdmin: boolean;
   };
 }
 

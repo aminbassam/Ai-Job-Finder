@@ -13,6 +13,7 @@ import { Login } from "./pages/auth/Login";
 import { Signup } from "./pages/auth/Signup";
 import { ForgotPassword } from "./pages/auth/ForgotPassword";
 import { VerifyEmail } from "./pages/auth/VerifyEmail";
+import { AdminUsers } from "./pages/admin/AdminUsers";
 
 export const router = createBrowserRouter([
   /* ── Auth routes (redirect to dashboard if already logged in) ── */
@@ -63,6 +64,7 @@ export const router = createBrowserRouter([
       { path: "applications", Component: Applications },
       { path: "analytics", Component: Analytics },
       { path: "settings", Component: Settings },
+      { path: "admin/users", Component: AdminUsers },
     ],
   },
 

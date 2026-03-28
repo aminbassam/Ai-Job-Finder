@@ -17,6 +17,7 @@ export interface User {
   totalCredits: number;
   location?: string;
   emailVerified: boolean;
+  isAdmin: boolean;
 }
 
 interface AuthState {

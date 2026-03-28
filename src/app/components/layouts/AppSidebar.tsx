@@ -9,6 +9,7 @@ import {
   Settings,
   Sparkles,
   LogOut,
+  Shield,
 } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Avatar, AvatarFallback } from "../ui/avatar";
@@ -30,6 +31,11 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+
+  const allNav = [
+    ...navigation,
+    ...(user?.isAdmin ? [{ name: "Admin", href: "/admin/users", icon: Shield }] : []),
+  ];
 
   const handleLogout = () => {
     logout();
@@ -65,7 +71,7 @@ export function AppSidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-4">
-        {navigation.map((item) => {
+        {allNav.map((item) => {
           const isActive =
             item.href === "/"
               ? location.pathname === "/"
