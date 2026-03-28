@@ -1,7 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
-  Search,
+  Zap,
   Briefcase,
   FileText,
   Wand2,
@@ -20,7 +20,7 @@ import { useAuth } from "../../contexts/AuthContext";
 
 const navigation = [
   { name: "Dashboard",    href: "/",            icon: LayoutDashboard },
-  { name: "Search Jobs",  href: "/search",       icon: Search          },
+  { name: "Job Agent",    href: "/agent",        icon: Zap             },
   { name: "Job Board",    href: "/jobs",         icon: Briefcase       },
   { name: "Resume",       href: "/resume",       icon: Wand2           },
   { name: "Resume Vault", href: "/resumes",      icon: FileText        },

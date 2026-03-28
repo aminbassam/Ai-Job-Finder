@@ -18,6 +18,8 @@ import analyticsRouter   from "./routes/analytics";
 import settingsRouter    from "./routes/settings";
 import documentsRouter   from "./routes/documents";
 import adminRouter       from "./routes/admin";
+import agentRouter       from "./routes/agent";
+import { startScheduler } from "./services/scheduler";
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
@@ -57,6 +59,7 @@ app.use("/api/analytics",    analyticsRouter);
 app.use("/api/settings",     settingsRouter);
 app.use("/api/documents",    documentsRouter);
 app.use("/api/admin",        adminRouter);
+app.use("/api/agent",        agentRouter);
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
@@ -87,6 +90,7 @@ async function applyMigrations() {
     join(ROOT, "db/migrations/002_admin_role.sql"),
     join(ROOT, "db/migrations/003_resume_preferences.sql"),
     join(ROOT, "db/migrations/004_ai_provider_fields.sql"),
+    join(ROOT, "db/migrations/005_job_agent.sql"),
   ];
   const client = await pool.connect();
   try {
@@ -108,6 +112,7 @@ applyMigrations().then(() => {
     console.log(`  Environment : ${process.env.NODE_ENV ?? "development"}`);
     console.log(`  CORS origin : ${process.env.CORS_ORIGIN ?? "http://localhost:5678"}`);
   });
+  startScheduler();
 });
 
 export default app;

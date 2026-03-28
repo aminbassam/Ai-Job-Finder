@@ -2,7 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router";
 import { RootLayout } from "./components/layouts/RootLayout";
 import { ProtectedRoute, GuestRoute } from "./components/auth/ProtectedRoute";
 import { Dashboard } from "./pages/Dashboard";
-import { SearchJobs } from "./pages/SearchJobs";
+import { JobAgent } from "./pages/JobAgent";
 import { JobBoard } from "./pages/JobBoard";
 import { JobDetail } from "./pages/JobDetail";
 import { Resume } from "./pages/Resume";
@@ -58,7 +58,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, Component: Dashboard },
-      { path: "search", Component: SearchJobs },
+      { path: "agent",  Component: JobAgent   },
       { path: "jobs", Component: JobBoard },
       { path: "jobs/:id", Component: JobDetail },
       { path: "resume",  Component: Resume     },
