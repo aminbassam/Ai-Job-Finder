@@ -14,9 +14,15 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Auto-apply schema + migrations on first boot (alphabetical order)
+      # Auto-apply schema + all migrations on first boot (alphabetical order)
       - ./db/postgres_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
-      - ./db/migrations/001_email_verification.sql:/docker-entrypoint-initdb.d/02_email_verification.sql
+      - ./db/migrations/001_email_verification.sql:/docker-entrypoint-initdb.d/02_migration_001.sql
+      - ./db/migrations/002_admin_role.sql:/docker-entrypoint-initdb.d/03_migration_002.sql
+      - ./db/migrations/003_resume_preferences.sql:/docker-entrypoint-initdb.d/04_migration_003.sql
+      - ./db/migrations/004_ai_provider_fields.sql:/docker-entrypoint-initdb.d/05_migration_004.sql
+      - ./db/migrations/005_job_agent.sql:/docker-entrypoint-initdb.d/06_migration_005.sql
+      - ./db/migrations/006_agent_profile_filters.sql:/docker-entrypoint-initdb.d/07_migration_006.sql
+      - ./db/migrations/007_fix_ai_provider_columns.sql:/docker-entrypoint-initdb.d/08_migration_007.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jobflow -d jobflow"]
       interval: 5s
