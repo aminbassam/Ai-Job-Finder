@@ -51,14 +51,21 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    const message = await response.text().catch(() => `HTTP ${response.status}`);
+    let message = `Request failed with status ${response.status}`;
+    try {
+      const text = await response.text();
+      const json = JSON.parse(text) as { message?: string };
+      message = json.message ?? text ?? message;
+    } catch {
+      // keep default message
+    }
 
     if (response.status === 401) {
       sessionStorage.removeItem(SESSION_KEY);
       window.location.href = "/auth/login";
     }
 
-    const error = new Error(message || `Request failed with status ${response.status}`) as ApiError;
+    const error = new Error(message) as ApiError;
     error.status = response.status;
     throw error;
   }

@@ -68,8 +68,12 @@ app.use((_req, res) => {
 
 // ── Global error handler ─────────────────────────────────────────────────────
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("[unhandled]", err.message);
-  res.status(500).json({ message: "Internal server error." });
+  const isDev = (process.env.NODE_ENV ?? "development") !== "production";
+  console.error("[unhandled error]", err.stack ?? err.message);
+  res.status(500).json({
+    message: isDev ? err.message : "Internal server error.",
+    ...(isDev && { stack: err.stack }),
+  });
 });
 
 // ── Start ────────────────────────────────────────────────────────────────────
