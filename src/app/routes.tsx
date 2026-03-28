@@ -5,6 +5,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { SearchJobs } from "./pages/SearchJobs";
 import { JobBoard } from "./pages/JobBoard";
 import { JobDetail } from "./pages/JobDetail";
+import { Resume } from "./pages/Resume";
 import { ResumeVault } from "./pages/ResumeVault";
 import { Applications } from "./pages/Applications";
 import { Analytics } from "./pages/Analytics";
@@ -60,6 +61,7 @@ export const router = createBrowserRouter([
       { path: "search", Component: SearchJobs },
       { path: "jobs", Component: JobBoard },
       { path: "jobs/:id", Component: JobDetail },
+      { path: "resume",  Component: Resume     },
       { path: "resumes", Component: ResumeVault },
       { path: "applications", Component: Applications },
       { path: "analytics", Component: Analytics },

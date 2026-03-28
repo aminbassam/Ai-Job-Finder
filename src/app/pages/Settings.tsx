@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { User, FileText, Sparkles, Bell, CreditCard } from "lucide-react";
-import { ResumePreferencesTab } from "./settings/ResumePreferencesTab";
+import { User, Sparkles, Bell, CreditCard } from "lucide-react";
 import { AiProvidersTab } from "./settings/AiProvidersTab";
 import { Card } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
@@ -107,10 +106,6 @@ export function Settings() {
           <TabsTrigger value="profile" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
             <User className="h-4 w-4 mr-2" />
             Profile
-          </TabsTrigger>
-          <TabsTrigger value="resume" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-            <FileText className="h-4 w-4 mr-2" />
-            Resume
           </TabsTrigger>
           <TabsTrigger value="ai" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
             <Sparkles className="h-4 w-4 mr-2" />
@@ -257,11 +252,6 @@ export function Settings() {
               </div>
             </Card>
           )}
-        </TabsContent>
-
-        {/* Resume Preferences Tab */}
-        <TabsContent value="resume">
-          <ResumePreferencesTab />
         </TabsContent>
 
         {/* AI Providers Tab */}

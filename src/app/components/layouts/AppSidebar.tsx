@@ -4,6 +4,7 @@ import {
   Search,
   Briefcase,
   FileText,
+  Wand2,
   ListChecks,
   BarChart3,
   Settings,
@@ -18,13 +19,14 @@ import { Button } from "../ui/button";
 import { useAuth } from "../../contexts/AuthContext";
 
 const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Search Jobs", href: "/search", icon: Search },
-  { name: "Job Board", href: "/jobs", icon: Briefcase },
-  { name: "Resume Vault", href: "/resumes", icon: FileText },
-  { name: "Applications", href: "/applications", icon: ListChecks },
-  { name: "Analytics", href: "/analytics", icon: BarChart3 },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Dashboard",    href: "/",            icon: LayoutDashboard },
+  { name: "Search Jobs",  href: "/search",       icon: Search          },
+  { name: "Job Board",    href: "/jobs",         icon: Briefcase       },
+  { name: "Resume",       href: "/resume",       icon: Wand2           },
+  { name: "Resume Vault", href: "/resumes",      icon: FileText        },
+  { name: "Applications", href: "/applications", icon: ListChecks      },
+  { name: "Analytics",    href: "/analytics",    icon: BarChart3       },
+  { name: "Settings",     href: "/settings",     icon: Settings        },
 ];
 
 export function AppSidebar() {
