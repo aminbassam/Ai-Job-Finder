@@ -2,6 +2,10 @@
 
 A full-stack SaaS platform with an **autonomous job discovery engine** at its core. Set your search strategy once — the agent searches, scores, and surfaces the best matches automatically across multiple sources on a schedule.
 
+Developer onboarding:
+
+- [docs/day-one-developer-onboarding.md](/Users/aminbassam/Documents/Cursor/Job Finder/docs/day-one-developer-onboarding.md)
+
 ---
 
 ## Project Structure
