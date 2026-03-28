@@ -3,18 +3,38 @@
  *
  * Runs every 30 minutes and processes any search profile whose next_run_at
  * is in the past (or NULL). Schedules the next run based on the profile's
- * schedule setting: "6h" | "daily" | "weekdays".
+ * schedule setting: "6h" | "daily" | "weekdays" | "custom" | "manual".
  */
 import cron from "node-cron";
 import { pool } from "../db/pool";
 import { PipelineProfile, runPipeline } from "./pipeline";
 
-function nextRunAt(schedule: string): Date {
+function nextWeekdayAtEight(now: Date): Date {
+  const next = new Date(now);
+  next.setDate(next.getDate() + 1);
+  next.setHours(8, 0, 0, 0);
+  while (next.getDay() === 0 || next.getDay() === 6) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next;
+}
+
+function nextRunAt(schedule: string | undefined, scheduleIntervalMinutes?: number | null): Date | null {
   const now = new Date();
   if (schedule === "6h") {
     return new Date(now.getTime() + 6 * 60 * 60 * 1000);
   }
-  // daily / weekdays: next 08:00
+  if (schedule === "custom") {
+    const minutes = Math.max(scheduleIntervalMinutes ?? 60, 15);
+    return new Date(now.getTime() + minutes * 60 * 1000);
+  }
+  if (schedule === "manual") {
+    return null;
+  }
+  if (schedule === "weekdays") {
+    return nextWeekdayAtEight(now);
+  }
+  // daily: next 08:00
   const next = new Date(now);
   next.setDate(next.getDate() + 1);
   next.setHours(8, 0, 0, 0);
@@ -34,6 +54,8 @@ async function processDueProfiles(): Promise<void> {
       remote_only: boolean;
       salary_min: number | null;
       salary_max: number | null;
+      job_types: string[];
+      posted_within_days: number | null;
       must_have_keywords: string[];
       nice_to_have_keywords: string[];
       excluded_companies: string[];
@@ -42,16 +64,19 @@ async function processDueProfiles(): Promise<void> {
       score_threshold: number;
       auto_resume: boolean;
       schedule: string;
+      schedule_interval_minutes: number | null;
     }>(
       `SELECT sp.id, sp.user_id, sp.name,
               sp.job_titles, sp.locations, sp.remote_only,
               sp.salary_min, sp.salary_max,
+              sp.job_types, sp.posted_within_days,
               sp.must_have_keywords, sp.nice_to_have_keywords,
               sp.excluded_companies, sp.sources,
               sp.search_mode, sp.score_threshold,
-              sp.auto_resume, sp.schedule
+              sp.auto_resume, sp.schedule, sp.schedule_interval_minutes
        FROM search_profiles sp
        WHERE sp.is_active = true
+         AND sp.schedule != 'manual'
          AND (sp.next_run_at IS NULL OR sp.next_run_at <= now())
          AND (sp.schedule != 'weekdays'
               OR EXTRACT(DOW FROM now()) BETWEEN 1 AND 5)`
@@ -64,13 +89,17 @@ async function processDueProfiles(): Promise<void> {
       remoteOnly: r.remote_only,
       salaryMin: r.salary_min,
       salaryMax: r.salary_max,
+      jobTypes: r.job_types ?? [],
+      postedWithinDays: r.posted_within_days,
       mustHaveKeywords: r.must_have_keywords ?? [],
       niceToHaveKeywords: r.nice_to_have_keywords ?? [],
       excludedCompanies: r.excluded_companies ?? [],
-      sources: r.sources ?? ["greenhouse", "lever"],
+      sources: r.sources ?? ["greenhouse", "lever", "google"],
       searchMode: (r.search_mode as "strict" | "balanced" | "broad") ?? "balanced",
       scoreThreshold: r.score_threshold ?? 70,
       autoResume: r.auto_resume ?? false,
+      schedule: r.schedule,
+      scheduleIntervalMinutes: r.schedule_interval_minutes,
     }));
   } catch (err) {
     console.error("[scheduler] Failed to load profiles:", (err as Error).message);
@@ -107,7 +136,7 @@ async function processDueProfiles(): Promise<void> {
         `UPDATE search_profiles
          SET last_run_at = now(), next_run_at = $2, updated_at = now()
          WHERE id = $1`,
-        [profile.id, nextRunAt((profiles.find((p) => p.id === profile.id) as any)?.schedule ?? "daily")]
+        [profile.id, nextRunAt(profile.schedule, profile.scheduleIntervalMinutes)]
       );
 
       console.log(

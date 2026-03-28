@@ -1,6 +1,6 @@
 /**
  * Sources Tab — configure job source connectors per the 4-lane strategy:
- *  Lane 1: ATS connectors (Greenhouse, Lever, Ashby) — primary autonomous discovery
+ *  Lane 1: Autonomous connectors (Google, Greenhouse, Lever, Ashby) — primary autonomous discovery
  *  Lane 2: Official APIs (Upwork OAuth) — structured source
  *  Lane 3: Browser Extension — manual/LinkedIn/Indeed (setup guide)
  *  Lane 4: Email ingestion — alert emails from any platform
@@ -226,7 +226,7 @@ export function SourcesTab() {
         <div className="flex items-start gap-3">
           <Info className="h-4 w-4 text-[#4F8CFF] mt-0.5 shrink-0" />
           <div className="text-[12px] text-[#9CA3AF] space-y-1">
-            <p><span className="text-[#10B981] font-medium">Lane 1 — ATS connectors</span>: autonomous discovery from Greenhouse, Lever, Ashby company boards (no auth required).</p>
+            <p><span className="text-[#10B981] font-medium">Lane 1 — Autonomous connectors</span>: Google search plus Greenhouse, Lever, and Ashby company boards for continuous discovery.</p>
             <p><span className="text-[#4F8CFF] font-medium">Lane 2 — Official APIs</span>: Upwork GraphQL with your OAuth token for structured contract work.</p>
             <p><span className="text-[#F59E0B] font-medium">Lane 3 — Browser extension</span>: manual save from LinkedIn, Indeed, and any job page you visit.</p>
             <p><span className="text-[#6366F1] font-medium">Lane 4 — Email ingestion</span>: parse job alert emails from LinkedIn, Indeed, ZipRecruiter automatically.</p>
@@ -240,6 +240,39 @@ export function SourcesTab() {
           Lane 1 — ATS Connectors (Autonomous)
         </h4>
         <div className="space-y-3">
+          <ConnectorCard
+            lane={1} laneLabel="Autonomous"
+            connector="google"
+            title="Google Job Search"
+            description="Searches Google for fresh job pages, then enriches the results with job-page metadata."
+            color="#4285F4"
+            logoChar="G"
+            cfg={cfgMap["google"]}
+            onSave={(a, c) => save("google", a, c)}
+          >
+            {(config, setConfig) => (
+              <div className="space-y-3">
+                <SlugList
+                  label="Preferred domains (optional)"
+                  placeholder="e.g. linkedin.com, greenhouse.io, jobs.lever.co"
+                  value={(config.domains as string[]) ?? []}
+                  onChange={(v) => setConfig({ ...config, domains: v })}
+                />
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Results per run</Label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={20}
+                    value={String((config.resultLimit as number) ?? 8)}
+                    onChange={(e) => setConfig({ ...config, resultLimit: Number(e.target.value) })}
+                    className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] h-9 text-[13px]"
+                  />
+                </div>
+              </div>
+            )}
+          </ConnectorCard>
+
           <ConnectorCard
             lane={1} laneLabel="Autonomous"
             connector="greenhouse"

@@ -21,6 +21,8 @@ export interface SearchQuery {
   locations: string[];
   remoteOnly: boolean;
   mustHaveKeywords: string[];
+  jobTypes?: string[];
+  postedWithinDays?: number | null;
   searchMode: "strict" | "balanced" | "broad";
 }
 
@@ -52,4 +54,32 @@ export function titleMatches(title: string, query: SearchQuery): boolean {
     const words = jt.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
     return t.includes(jt.toLowerCase()) || words.every((w) => t.includes(w));
   });
+}
+
+export function normalizeJobType(value?: string | null): string | undefined {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return undefined;
+
+  if (/(full[\s-]?time|permanent)/i.test(raw)) return "full-time";
+  if (/(part[\s-]?time)/i.test(raw)) return "part-time";
+  if (/(contract|contractor|consultant|temporary|temp)/i.test(raw)) return "contract";
+  if (/(intern|internship|apprentice)/i.test(raw)) return "internship";
+  if (/(freelance|gig)/i.test(raw)) return "freelance";
+  return raw;
+}
+
+export function jobTypeMatches(jobType: string | undefined, selectedTypes: string[] = []): boolean {
+  if (selectedTypes.length === 0) return true;
+  const normalized = normalizeJobType(jobType);
+  if (!normalized) return false;
+  return selectedTypes
+    .map((type) => normalizeJobType(type))
+    .filter((type): type is string => Boolean(type))
+    .includes(normalized);
+}
+
+export function postedWithinRange(postedAt: Date | undefined, days?: number | null): boolean {
+  if (!days) return true;
+  if (!postedAt) return false;
+  return Date.now() - postedAt.getTime() <= days * 24 * 60 * 60 * 1000;
 }

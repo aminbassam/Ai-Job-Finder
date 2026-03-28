@@ -9,11 +9,18 @@
  *   5. Persist strong/maybe/weak/reject tiers
  */
 import { pool } from "../db/pool";
-import { RawJob, SearchQuery } from "./connectors/base";
+import {
+  RawJob,
+  SearchQuery,
+  jobTypeMatches,
+  normalizeJobType,
+  postedWithinRange,
+} from "./connectors/base";
 import { greenhouseConnector } from "./connectors/greenhouse";
 import { leverConnector } from "./connectors/lever";
 import { upworkConnector } from "./connectors/upwork";
 import { atsFeedConnector } from "./connectors/ats-feed";
+import { googleConnector } from "./connectors/google";
 
 /* ─── Profile shape ─────────────────────────────────────────────────────── */
 
@@ -25,6 +32,8 @@ export interface PipelineProfile {
   remoteOnly: boolean;
   salaryMin: number | null;
   salaryMax: number | null;
+  jobTypes: string[];
+  postedWithinDays: number | null;
   mustHaveKeywords: string[];
   niceToHaveKeywords: string[];
   excludedCompanies: string[];
@@ -32,6 +41,8 @@ export interface PipelineProfile {
   searchMode: "strict" | "balanced" | "broad";
   scoreThreshold: number;
   autoResume: boolean;
+  schedule?: string;
+  scheduleIntervalMinutes?: number | null;
 }
 
 /* ─── Scoring ───────────────────────────────────────────────────────────── */
@@ -142,6 +153,8 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
     locations: profile.locations,
     remoteOnly: profile.remoteOnly,
     mustHaveKeywords: profile.mustHaveKeywords,
+    jobTypes: profile.jobTypes,
+    postedWithinDays: profile.postedWithinDays,
     searchMode: profile.searchMode,
   };
 
@@ -163,6 +176,7 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
         if (source === "greenhouse") jobs = await greenhouseConnector.search(query, cfg);
         else if (source === "lever") jobs = await leverConnector.search(query, cfg);
         else if (source === "upwork") jobs = await upworkConnector.search(query, cfg);
+        else if (source === "google") jobs = await googleConnector.search(query, cfg);
         else if (source === "ats-feed" || source === "ashby")
           jobs = await atsFeedConnector.search(query, cfg);
       } catch (err) {
@@ -172,16 +186,17 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
     })
   );
 
-  // Filter excluded companies
-  const filtered =
-    profile.excludedCompanies.length === 0
-      ? allJobs
-      : allJobs.filter((job) => {
-          const co = (job.company ?? "").toLowerCase();
-          return !profile.excludedCompanies.some((ec) =>
-            co.includes(ec.toLowerCase())
-          );
-        });
+  // Filter excluded companies + post-connector profile filters.
+  const filtered = allJobs
+    .filter((job) => {
+      if (profile.excludedCompanies.length === 0) return true;
+      const co = (job.company ?? "").toLowerCase();
+      return !profile.excludedCompanies.some((ec) =>
+        co.includes(ec.toLowerCase())
+      );
+    })
+    .filter((job) => jobTypeMatches(job.jobType, profile.jobTypes))
+    .filter((job) => postedWithinRange(job.postedAt, profile.postedWithinDays));
 
   let newCount = 0;
   let scoredCount = 0;
@@ -211,7 +226,7 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
           job.company ?? null,
           job.location ?? null,
           job.remote ?? false,
-          job.jobType ?? null,
+          normalizeJobType(job.jobType) ?? null,
           (job.description ?? "").slice(0, 10_000),
           job.requirements ?? [],
           job.postedAt ?? new Date(),

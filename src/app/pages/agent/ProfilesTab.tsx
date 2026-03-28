@@ -51,16 +51,18 @@ const BLANK: ProfileInput = {
   remoteOnly: false,
   includeNearby: false,
   experienceLevels: [],
+  jobTypes: [],
   mustHaveKeywords: [],
   niceToHaveKeywords: [],
   excludedCompanies: [],
   includedCompanies: [],
   companySizes: [],
-  sources: ["greenhouse", "lever"],
+  sources: ["greenhouse", "lever", "google"],
   searchMode: "balanced",
   scoreThreshold: 70,
   autoResume: false,
   schedule: "daily",
+  postedWithinDays: 7,
   isActive: true,
 };
 
@@ -84,11 +86,19 @@ function ProfileForm({
 
   const sourceOptions = [
     { key: "greenhouse", label: "Greenhouse" },
-    { key: "lever",      label: "Lever" },
-    { key: "upwork",     label: "Upwork" },
-    { key: "ashby",      label: "Ashby" },
+    { key: "lever", label: "Lever" },
+    { key: "google", label: "Google" },
+    { key: "upwork", label: "Upwork" },
+    { key: "ashby", label: "Ashby" },
   ];
   const expOptions = ["Entry", "Mid-level", "Senior", "Lead", "Director"];
+  const jobTypeOptions = [
+    { key: "full-time", label: "Full-time" },
+    { key: "part-time", label: "Part-time" },
+    { key: "contract", label: "Contract" },
+    { key: "internship", label: "Internship" },
+    { key: "freelance", label: "Freelance" },
+  ];
 
   function toggleSource(key: string) {
     upd("sources", form.sources.includes(key)
@@ -102,6 +112,12 @@ function ProfileForm({
       : [...form.experienceLevels, level]);
   }
 
+  function toggleJobType(type: string) {
+    upd("jobTypes", form.jobTypes.includes(type)
+      ? form.jobTypes.filter((t) => t !== type)
+      : [...form.jobTypes, type]);
+  }
+
   async function handleSave() {
     if (!form.name.trim()) {
       setSaveError("Profile name is required.");
@@ -109,6 +125,10 @@ function ProfileForm({
     }
     if (form.sources.length === 0) {
       setSaveError("Select at least one job source.");
+      return;
+    }
+    if (form.schedule === "custom" && (!form.scheduleIntervalMinutes || form.scheduleIntervalMinutes < 15)) {
+      setSaveError("Custom search frequency must be at least 15 minutes.");
       return;
     }
     setSaving(true);
@@ -202,7 +222,8 @@ function ProfileForm({
       </div>
 
       {/* Experience */}
-      <div>
+      <div className="space-y-4">
+        <div>
         <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Experience Level</Label>
         <div className="flex flex-wrap gap-2">
           {expOptions.map((lvl) => (
@@ -219,6 +240,27 @@ function ProfileForm({
               {lvl}
             </button>
           ))}
+        </div>
+        </div>
+
+        <div>
+          <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Job Type</Label>
+          <div className="flex flex-wrap gap-2">
+            {jobTypeOptions.map((type) => (
+              <button
+                key={type.key}
+                type="button"
+                onClick={() => toggleJobType(type.key)}
+                className={`px-3 py-1.5 rounded-lg text-[12px] border transition-all ${
+                  form.jobTypes.includes(type.key)
+                    ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30"
+                    : "bg-[#0B0F14] text-[#6B7280] border-[#1F2937] hover:text-[#9CA3AF]"
+                }`}
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -244,18 +286,38 @@ function ProfileForm({
       </div>
 
       {/* Schedule + Mode */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div>
           <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Search Frequency</Label>
           <SegCtrl
             options={[
-              { label: "6h",       value: "6h"       },
-              { label: "Daily",    value: "daily"    },
+              { label: "6h", value: "6h" },
+              { label: "Daily", value: "daily" },
               { label: "Weekdays", value: "weekdays" },
+              { label: "Custom", value: "custom" },
+              { label: "Manual", value: "manual" },
             ]}
             value={form.schedule}
             onChange={(v) => upd("schedule", v as ProfileInput["schedule"])}
           />
+          {form.schedule === "custom" && (
+            <div className="mt-3">
+              <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Custom frequency (minutes)</Label>
+              <Input
+                type="number"
+                min={15}
+                step={15}
+                value={form.scheduleIntervalMinutes ?? 60}
+                onChange={(e) => upd("scheduleIntervalMinutes", e.target.value ? Number(e.target.value) : null)}
+                className="bg-[#0B0F14] border-[#1F2937] text-white"
+              />
+            </div>
+          )}
+          {form.schedule === "manual" && (
+            <p className="mt-3 text-[12px] text-[#6B7280]">
+              Manual only. The profile saves normally, but searches run only when you click <span className="text-white font-medium">Run now</span>.
+            </p>
+          )}
         </div>
         <div>
           <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Search Mode</Label>
@@ -269,6 +331,22 @@ function ProfileForm({
             onChange={(v) => upd("searchMode", v as ProfileInput["searchMode"])}
           />
         </div>
+      </div>
+
+      <div>
+        <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Date Posted</Label>
+        <SegCtrl
+          options={[
+            { label: "Any time", value: "any" },
+            { label: "24h", value: "1" },
+            { label: "3d", value: "3" },
+            { label: "7d", value: "7" },
+            { label: "14d", value: "14" },
+            { label: "30d", value: "30" },
+          ]}
+          value={form.postedWithinDays ? String(form.postedWithinDays) : "any"}
+          onChange={(v) => upd("postedWithinDays", v === "any" ? null : Number(v))}
+        />
       </div>
 
       {/* Advanced */}
@@ -355,6 +433,8 @@ function ProfileCard({
 
   const scheduleLabel =
     profile.schedule === "6h" ? "Every 6 h"
+    : profile.schedule === "custom" ? `Every ${profile.scheduleIntervalMinutes ?? 60} min`
+    : profile.schedule === "manual" ? "Manual only"
     : profile.schedule === "weekdays" ? "Weekdays"
     : "Daily";
 
@@ -384,6 +464,7 @@ function ProfileCard({
           <div className="flex items-center gap-3 text-[11px] text-[#6B7280]">
             <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{scheduleLabel}</span>
             <span className="flex items-center gap-1"><Target className="h-3 w-3" />{profile.sources.length} sources</span>
+            {profile.postedWithinDays && <span>Past {profile.postedWithinDays}d</span>}
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -635,6 +716,8 @@ export function ProfilesTab() {
                     salaryMin: p.salaryMin,
                     salaryMax: p.salaryMax,
                     experienceLevels: p.experienceLevels,
+                    jobTypes: p.jobTypes,
+                    postedWithinDays: p.postedWithinDays,
                     mustHaveKeywords: p.mustHaveKeywords,
                     niceToHaveKeywords: p.niceToHaveKeywords,
                     excludedCompanies: p.excludedCompanies,
@@ -645,6 +728,7 @@ export function ProfilesTab() {
                     scoreThreshold: p.scoreThreshold,
                     autoResume: p.autoResume,
                     schedule: p.schedule,
+                    scheduleIntervalMinutes: p.scheduleIntervalMinutes,
                     isActive: p.isActive,
                   }}
                   onSave={(data) => handleUpdate(p.id, data)}

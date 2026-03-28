@@ -86,17 +86,32 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 async function applyMigrations() {
   const ROOT = join(__dirname, "../../");
   const migrations = [
-    join(ROOT, "db/migrations/001_email_verification.sql"),
-    join(ROOT, "db/migrations/002_admin_role.sql"),
-    join(ROOT, "db/migrations/003_resume_preferences.sql"),
-    join(ROOT, "db/migrations/004_ai_provider_fields.sql"),
-    join(ROOT, "db/migrations/005_job_agent.sql"),
+    { name: "001_email_verification", file: join(ROOT, "db/migrations/001_email_verification.sql") },
+    { name: "002_admin_role",         file: join(ROOT, "db/migrations/002_admin_role.sql") },
+    { name: "003_resume_preferences", file: join(ROOT, "db/migrations/003_resume_preferences.sql") },
+    { name: "004_ai_provider_fields", file: join(ROOT, "db/migrations/004_ai_provider_fields.sql") },
+    { name: "005_job_agent",          file: join(ROOT, "db/migrations/005_job_agent.sql") },
+    { name: "006_agent_profile_filters", file: join(ROOT, "db/migrations/006_agent_profile_filters.sql") },
   ];
   const client = await pool.connect();
   try {
-    for (const file of migrations) {
-      const sql = readFileSync(file, "utf8");
-      await client.query(sql);
+    for (const migration of migrations) {
+      try {
+        const sql = readFileSync(migration.file, "utf8");
+        await client.query(sql);
+      } catch (err) {
+        const message = (err as Error).message;
+        const isOwnershipRerunIssue =
+          /must be owner of table/i.test(message) ||
+          /must be owner of relation/i.test(message) ||
+          /already exists/i.test(message);
+
+        if (isOwnershipRerunIssue) {
+          console.warn(`[db] Migration ${migration.name} skipped: ${message}`);
+          continue;
+        }
+        throw err;
+      }
     }
     console.log("[db] Migrations applied.");
   } catch (err) {

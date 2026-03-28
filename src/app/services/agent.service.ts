@@ -9,9 +9,11 @@ export interface SearchProfile {
   locations: string[];
   remoteOnly: boolean;
   includeNearby: boolean;
-  salaryMin?: number;
-  salaryMax?: number;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
   experienceLevels: string[];
+  jobTypes: string[];
+  postedWithinDays?: number | null;
   mustHaveKeywords: string[];
   niceToHaveKeywords: string[];
   excludedCompanies: string[];
@@ -21,7 +23,8 @@ export interface SearchProfile {
   searchMode: "strict" | "balanced" | "broad";
   scoreThreshold: number;
   autoResume: boolean;
-  schedule: "6h" | "daily" | "weekdays";
+  schedule: "6h" | "daily" | "weekdays" | "custom" | "manual";
+  scheduleIntervalMinutes?: number | null;
   isActive: boolean;
   lastRunAt?: string;
   nextRunAt?: string;

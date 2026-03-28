@@ -16,6 +16,54 @@ import { fetchImportedJobDetails } from "../services/import-metadata";
 const router = Router();
 router.use(requireAuth);
 
+const DEFAULT_SOURCES = ["greenhouse", "lever", "google"];
+const VALID_SCHEDULES = new Set(["6h", "daily", "weekdays", "custom", "manual"]);
+
+function normalizeTextList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
+function normalizeOptionalNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function nextRunAt(schedule: unknown, scheduleIntervalMinutes: unknown, isActive: unknown): Date | null {
+  if (!isActive) return null;
+
+  const normalizedSchedule =
+    typeof schedule === "string" && VALID_SCHEDULES.has(schedule) ? schedule : "daily";
+
+  if (normalizedSchedule === "manual") {
+    return null;
+  }
+
+  const now = new Date();
+  if (normalizedSchedule === "6h") {
+    return new Date(now.getTime() + 6 * 60 * 60 * 1000);
+  }
+  if (normalizedSchedule === "custom") {
+    const minutes = Math.max(normalizeOptionalNumber(scheduleIntervalMinutes) ?? 60, 15);
+    return new Date(now.getTime() + minutes * 60 * 1000);
+  }
+
+  const next = new Date(now);
+  next.setDate(next.getDate() + 1);
+  next.setHours(8, 0, 0, 0);
+
+  if (normalizedSchedule === "weekdays") {
+    while (next.getDay() === 0 || next.getDay() === 6) {
+      next.setDate(next.getDate() + 1);
+    }
+  }
+
+  return next;
+}
+
 /* ═══════════════════════════ Search Profiles ══════════════════════════════ */
 
 // GET /api/agent/profiles
@@ -41,36 +89,46 @@ router.get("/profiles", async (req, res) => {
 router.post("/profiles", async (req, res) => {
   const b = req.body;
   try {
+    const schedule = typeof b.schedule === "string" && VALID_SCHEDULES.has(b.schedule) ? b.schedule : "daily";
+    const isActive = b.isActive ?? true;
+    const scheduleIntervalMinutes =
+      schedule === "custom" ? normalizeOptionalNumber(b.scheduleIntervalMinutes) ?? 60 : null;
+    const nextRun = nextRunAt(schedule, scheduleIntervalMinutes, isActive);
     const { rows } = await pool.query(
       `INSERT INTO search_profiles (
         user_id, name, job_titles, locations, remote_only, include_nearby,
         salary_min, salary_max, experience_levels,
+        job_types, posted_within_days, schedule_interval_minutes,
         must_have_keywords, nice_to_have_keywords,
         excluded_companies, included_companies, company_sizes,
-        sources, search_mode, score_threshold, auto_resume, schedule, is_active
-      ) VALUES ($1,$2,$3::text[],$4::text[],$5,$6,$7,$8,$9::text[],$10::text[],$11::text[],$12::text[],$13::text[],$14::text[],$15::text[],$16,$17,$18,$19,$20)
+        sources, search_mode, score_threshold, auto_resume, schedule, is_active, next_run_at
+      ) VALUES ($1,$2,$3::text[],$4::text[],$5,$6,$7,$8,$9::text[],$10::text[],$11,$12,$13::text[],$14::text[],$15::text[],$16::text[],$17::text[],$18::text[],$19,$20,$21,$22,$23,$24)
       RETURNING *`,
       [
         req.userId,
         b.name ?? "Untitled Profile",
-        b.jobTitles ?? [],
-        b.locations ?? [],
+        normalizeTextList(b.jobTitles),
+        normalizeTextList(b.locations),
         b.remoteOnly ?? false,
         b.includeNearby ?? false,
-        b.salaryMin ?? null,
-        b.salaryMax ?? null,
-        b.experienceLevels ?? [],
-        b.mustHaveKeywords ?? [],
-        b.niceToHaveKeywords ?? [],
-        b.excludedCompanies ?? [],
-        b.includedCompanies ?? [],
-        b.companySizes ?? [],
-        b.sources ?? ["greenhouse", "lever"],
+        normalizeOptionalNumber(b.salaryMin),
+        normalizeOptionalNumber(b.salaryMax),
+        normalizeTextList(b.experienceLevels),
+        normalizeTextList(b.jobTypes),
+        normalizeOptionalNumber(b.postedWithinDays),
+        scheduleIntervalMinutes,
+        normalizeTextList(b.mustHaveKeywords),
+        normalizeTextList(b.niceToHaveKeywords),
+        normalizeTextList(b.excludedCompanies),
+        normalizeTextList(b.includedCompanies),
+        normalizeTextList(b.companySizes),
+        normalizeTextList(b.sources).length > 0 ? normalizeTextList(b.sources) : DEFAULT_SOURCES,
         b.searchMode ?? "balanced",
         b.scoreThreshold ?? 70,
         b.autoResume ?? false,
-        b.schedule ?? "daily",
-        b.isActive ?? true,
+        schedule,
+        isActive,
+        nextRun,
       ]
     );
     res.status(201).json(toProfile(rows[0]));
@@ -84,54 +142,143 @@ router.post("/profiles", async (req, res) => {
 router.put("/profiles/:id", async (req, res) => {
   const b = req.body;
   try {
+    const { rows: currentRows } = await pool.query(
+      `SELECT *
+       FROM search_profiles
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.userId]
+    );
+    if (!currentRows[0]) return res.status(404).json({ message: "Profile not found." });
+
+    const current = currentRows[0];
+    const incomingSchedule =
+      typeof b.schedule === "string" && VALID_SCHEDULES.has(b.schedule) ? b.schedule : null;
+    const incomingIsActive =
+      typeof b.isActive === "boolean" ? b.isActive : null;
+    const incomingScheduleIntervalMinutes =
+      incomingSchedule === "custom"
+        ? normalizeOptionalNumber(b.scheduleIntervalMinutes)
+        : Object.prototype.hasOwnProperty.call(b, "scheduleIntervalMinutes")
+          ? normalizeOptionalNumber(b.scheduleIntervalMinutes)
+          : null;
+
+    const resolvedName = typeof b.name === "string" ? b.name : current.name;
+    const resolvedJobTitles = Object.prototype.hasOwnProperty.call(b, "jobTitles")
+      ? normalizeTextList(b.jobTitles)
+      : current.job_titles;
+    const resolvedLocations = Object.prototype.hasOwnProperty.call(b, "locations")
+      ? normalizeTextList(b.locations)
+      : current.locations;
+    const resolvedRemoteOnly =
+      typeof b.remoteOnly === "boolean" ? b.remoteOnly : current.remote_only;
+    const resolvedIncludeNearby =
+      typeof b.includeNearby === "boolean" ? b.includeNearby : current.include_nearby;
+    const resolvedSalaryMin = Object.prototype.hasOwnProperty.call(b, "salaryMin")
+      ? normalizeOptionalNumber(b.salaryMin)
+      : current.salary_min;
+    const resolvedSalaryMax = Object.prototype.hasOwnProperty.call(b, "salaryMax")
+      ? normalizeOptionalNumber(b.salaryMax)
+      : current.salary_max;
+    const resolvedExperienceLevels = Object.prototype.hasOwnProperty.call(b, "experienceLevels")
+      ? normalizeTextList(b.experienceLevels)
+      : current.experience_levels;
+    const resolvedJobTypes = Object.prototype.hasOwnProperty.call(b, "jobTypes")
+      ? normalizeTextList(b.jobTypes)
+      : current.job_types;
+    const resolvedPostedWithinDays = Object.prototype.hasOwnProperty.call(b, "postedWithinDays")
+      ? normalizeOptionalNumber(b.postedWithinDays)
+      : current.posted_within_days;
+    const resolvedMustHaveKeywords = Object.prototype.hasOwnProperty.call(b, "mustHaveKeywords")
+      ? normalizeTextList(b.mustHaveKeywords)
+      : current.must_have_keywords;
+    const resolvedNiceToHaveKeywords = Object.prototype.hasOwnProperty.call(b, "niceToHaveKeywords")
+      ? normalizeTextList(b.niceToHaveKeywords)
+      : current.nice_to_have_keywords;
+    const resolvedExcludedCompanies = Object.prototype.hasOwnProperty.call(b, "excludedCompanies")
+      ? normalizeTextList(b.excludedCompanies)
+      : current.excluded_companies;
+    const resolvedIncludedCompanies = Object.prototype.hasOwnProperty.call(b, "includedCompanies")
+      ? normalizeTextList(b.includedCompanies)
+      : current.included_companies;
+    const resolvedCompanySizes = Object.prototype.hasOwnProperty.call(b, "companySizes")
+      ? normalizeTextList(b.companySizes)
+      : current.company_sizes;
+    const resolvedSources = Object.prototype.hasOwnProperty.call(b, "sources")
+      ? (normalizeTextList(b.sources).length > 0 ? normalizeTextList(b.sources) : DEFAULT_SOURCES)
+      : current.sources;
+    const resolvedSearchMode = typeof b.searchMode === "string" ? b.searchMode : current.search_mode;
+    const resolvedScoreThreshold = b.scoreThreshold ?? current.score_threshold;
+    const resolvedAutoResume =
+      typeof b.autoResume === "boolean" ? b.autoResume : current.auto_resume;
+    const resolvedSchedule = incomingSchedule ?? current.schedule;
+    const resolvedIsActive = incomingIsActive ?? current.is_active;
+    const resolvedScheduleIntervalMinutes =
+      resolvedSchedule === "custom"
+        ? incomingScheduleIntervalMinutes ?? current.schedule_interval_minutes ?? 60
+        : resolvedSchedule === "manual"
+          ? null
+          : null;
+    const resolvedNextRunAt = nextRunAt(
+      resolvedSchedule,
+      resolvedScheduleIntervalMinutes,
+      resolvedIsActive
+    );
+
     const { rows } = await pool.query(
       `UPDATE search_profiles SET
-        name = COALESCE($3, name),
-        job_titles = COALESCE($4::text[], job_titles),
-        locations = COALESCE($5::text[], locations),
-        remote_only = COALESCE($6, remote_only),
-        include_nearby = COALESCE($7, include_nearby),
+        name = $3,
+        job_titles = $4::text[],
+        locations = $5::text[],
+        remote_only = $6,
+        include_nearby = $7,
         salary_min = $8,
         salary_max = $9,
-        experience_levels = COALESCE($10::text[], experience_levels),
-        must_have_keywords = COALESCE($11::text[], must_have_keywords),
-        nice_to_have_keywords = COALESCE($12::text[], nice_to_have_keywords),
-        excluded_companies = COALESCE($13::text[], excluded_companies),
-        included_companies = COALESCE($14::text[], included_companies),
-        company_sizes = COALESCE($15::text[], company_sizes),
-        sources = COALESCE($16::text[], sources),
-        search_mode = COALESCE($17, search_mode),
-        score_threshold = COALESCE($18, score_threshold),
-        auto_resume = COALESCE($19, auto_resume),
-        schedule = COALESCE($20, schedule),
-        is_active = COALESCE($21, is_active),
+        experience_levels = $10::text[],
+        job_types = $11::text[],
+        posted_within_days = $12,
+        schedule_interval_minutes = $13,
+        must_have_keywords = $14::text[],
+        nice_to_have_keywords = $15::text[],
+        excluded_companies = $16::text[],
+        included_companies = $17::text[],
+        company_sizes = $18::text[],
+        sources = $19::text[],
+        search_mode = $20,
+        score_threshold = $21,
+        auto_resume = $22,
+        schedule = $23,
+        is_active = $24,
+        next_run_at = $25,
         updated_at = now()
        WHERE id = $1 AND user_id = $2
        RETURNING *`,
       [
         req.params.id, req.userId,
-        b.name ?? null,
-        b.jobTitles ?? null,
-        b.locations ?? null,
-        b.remoteOnly ?? null,
-        b.includeNearby ?? null,
-        b.salaryMin ?? null,
-        b.salaryMax ?? null,
-        b.experienceLevels ?? null,
-        b.mustHaveKeywords ?? null,
-        b.niceToHaveKeywords ?? null,
-        b.excludedCompanies ?? null,
-        b.includedCompanies ?? null,
-        b.companySizes ?? null,
-        b.sources ?? null,
-        b.searchMode ?? null,
-        b.scoreThreshold ?? null,
-        b.autoResume ?? null,
-        b.schedule ?? null,
-        b.isActive ?? null,
+        resolvedName,
+        resolvedJobTitles,
+        resolvedLocations,
+        resolvedRemoteOnly,
+        resolvedIncludeNearby,
+        resolvedSalaryMin,
+        resolvedSalaryMax,
+        resolvedExperienceLevels,
+        resolvedJobTypes,
+        resolvedPostedWithinDays,
+        resolvedScheduleIntervalMinutes,
+        resolvedMustHaveKeywords,
+        resolvedNiceToHaveKeywords,
+        resolvedExcludedCompanies,
+        resolvedIncludedCompanies,
+        resolvedCompanySizes,
+        resolvedSources,
+        resolvedSearchMode,
+        resolvedScoreThreshold,
+        resolvedAutoResume,
+        resolvedSchedule,
+        resolvedIsActive,
+        resolvedNextRunAt,
       ]
     );
-    if (!rows[0]) return res.status(404).json({ message: "Profile not found." });
     res.json(toProfile(rows[0]));
   } catch (err) {
     console.error(err);
@@ -166,13 +313,17 @@ router.post("/profiles/:id/run", async (req, res) => {
       remoteOnly: row.remote_only,
       salaryMin: row.salary_min,
       salaryMax: row.salary_max,
+      jobTypes: row.job_types ?? [],
+      postedWithinDays: row.posted_within_days,
       mustHaveKeywords: row.must_have_keywords ?? [],
       niceToHaveKeywords: row.nice_to_have_keywords ?? [],
       excludedCompanies: row.excluded_companies ?? [],
-      sources: row.sources ?? ["greenhouse", "lever"],
+      sources: row.sources ?? DEFAULT_SOURCES,
       searchMode: row.search_mode ?? "balanced",
       scoreThreshold: row.score_threshold ?? 70,
       autoResume: row.auto_resume ?? false,
+      schedule: row.schedule ?? "daily",
+      scheduleIntervalMinutes: row.schedule_interval_minutes,
     };
 
     // Create run log
@@ -192,8 +343,10 @@ router.post("/profiles/:id/run", async (req, res) => {
           [run.id, result.found, result.newJobs, result.scored, result.strongMatches]
         );
         await pool.query(
-          `UPDATE search_profiles SET last_run_at=now(), updated_at=now() WHERE id=$1`,
-          [profile.id]
+          `UPDATE search_profiles
+           SET last_run_at = now(), next_run_at = $2, updated_at = now()
+           WHERE id = $1`,
+          [profile.id, nextRunAt(profile.schedule, profile.scheduleIntervalMinutes, profile.schedule !== "manual")]
         );
       } catch (err) {
         await pool.query(
@@ -461,6 +614,9 @@ function toProfile(r: Record<string, unknown>) {
     excludedCompanies: r.excluded_companies,
     includedCompanies: r.included_companies,
     companySizes: r.company_sizes,
+    jobTypes: r.job_types,
+    postedWithinDays: r.posted_within_days,
+    scheduleIntervalMinutes: r.schedule_interval_minutes,
     sources: r.sources,
     searchMode: r.search_mode,
     scoreThreshold: r.score_threshold,

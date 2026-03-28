@@ -25,6 +25,7 @@ function TierBadge({ tier }: { tier?: string }) {
 /* ─── Source badge ───────────────────────────────────────────────────── */
 function SourceBadge({ source }: { source: string }) {
   const colors: Record<string, string> = {
+    google: "#4285F4",
     greenhouse: "#24a362",
     lever: "#3c5a99",
     ashby: "#7c3aed",
@@ -113,6 +114,11 @@ function MatchCard({
                 {match.remote && (
                   <span className="text-[#10B981] text-[11px] font-medium">Remote</span>
                 )}
+                {match.jobType && (
+                  <span className="text-[#E5E7EB] text-[11px] font-medium capitalize">
+                    {match.jobType.replace(/-/g, " ")}
+                  </span>
+                )}
                 {salary && (
                   <span className="flex items-center gap-1 text-[#9CA3AF]">
                     <DollarSign className="h-3 w-3" />{salary}
@@ -182,6 +188,13 @@ function MatchCard({
               {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               {expanded ? "Hide details" : "Show details"}
             </button>
+          )}
+
+          {!expanded && match.description && (
+            <p className="mt-2 text-[12px] text-[#6B7280] leading-relaxed line-clamp-2">
+              {match.description.replace(/<[^>]+>/g, " ").slice(0, 220)}
+              {match.description.length > 220 ? "…" : ""}
+            </p>
           )}
 
           {expanded && (
