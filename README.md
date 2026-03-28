@@ -10,9 +10,9 @@ A full-stack SaaS platform that automatically finds, scores, and tailors job app
 /                              ← Frontend (React + Vite + TypeScript)
   src/app/
     contexts/                  ← AuthContext (JWT session + user state)
-    services/                  ← api.ts, auth.service.ts, profile.service.ts
-    pages/                     ← Dashboard, JobBoard, ResumeVault, Applications, Settings, etc.
-    pages/settings/            ← ResumePreferencesTab (AI resume engine config)
+    services/                  ← api.ts, auth.service.ts, profile.service.ts, settings.service.ts
+    pages/                     ← Dashboard, SearchJobs, JobBoard, Resume, ResumeVault, Applications, Analytics, Settings
+    pages/settings/            ← ResumePreferencesTab (AI resume engine config), AiProvidersTab
     pages/admin/               ← AdminUsers dashboard (user management)
     pages/auth/                ← Login, Signup, ForgotPassword, VerifyEmail (OTP)
     components/ui/             ← shadcn/ui components + TagInput, LocationInput
@@ -47,6 +47,7 @@ A full-stack SaaS platform that automatically finds, scores, and tailors job app
     001_email_verification.sql ← email_verification_tokens table
     002_admin_role.sql         ← is_admin column on account_users
     003_resume_preferences.sql ← resume_preferences table (AI engine config)
+    004_ai_provider_fields.sql ← encrypted key columns + current_job_title/linkedin_url
 
 /docker-compose.yml            ← PostgreSQL 16 container
 ```
@@ -133,6 +134,28 @@ The superadmin account is seeded automatically by `npm run db:seed`. It has:
 
 ## Features
 
+### AI Job Strategy Builder (`/search`)
+A full search strategy builder — not just a form:
+
+| Section | Details |
+|---------|---------|
+| **Job Targeting** | Multi-title chip input with 19 suggestions; first chip = highest priority. Multi-select experience level (Internship → C-Level) |
+| **Location & Salary** | Multi-location chips with suggestions, Remote Only + Include Nearby Cities toggles, salary range slider ($0–$400k) |
+| **Keywords & Skills** | Must-Have chips (excluded if missing) and Nice-to-Have chips (boost relevance score) |
+| **Search Strategy** | Strict / Balanced / Broad mode, AND/OR combine logic for titles, 4 priority weight sliders (Role Match / Salary / Location / Company Type) |
+| **Company Filters** | Include/exclude specific companies (chips), company size filter (Startup / Small / Mid / Enterprise) — collapsible |
+| **Job Freshness** | 24h / 3 days / 7 days / 30 days segmented control |
+| **Sources** | 6 platforms: LinkedIn, Indeed, Glassdoor, Company Sites, AngelList, Remote OK — each shows live job count + last sync time |
+| **AI Search Preview** | Right panel shows exactly what will be searched before you run it |
+| **Estimated Results** | Live count that updates as you change filters |
+| **Saved Searches** | Name a search, set auto-run daily + notifications, run or delete from sidebar |
+| **Smart CTA** | "Find Best Matches" / "Start Smart Search" with animated phase messages during search |
+
+### Resume (`/resume`)
+Standalone page in the main navigation (moved from Settings):
+- **Resume Readiness Score** — prominent SVG ring (0–100), color-coded green/amber/red, with "X fields to improve" prompt
+- Full AI engine configuration panel (see Settings — Resume Preferences below)
+
 ### Authentication
 - Signup / Login with JWT (7-day sessions, revocable)
 - **Email OTP verification** — 6-digit code, 15-min TTL, 5-attempt limit
@@ -146,7 +169,8 @@ The superadmin account is seeded automatically by `npm run db:seed`. It has:
 - Email is read-only (contact support to change)
 - Saves to `PUT /api/profile` and syncs name/location to sidebar instantly
 
-### Settings — Resume Preferences Tab (AI Engine Config)
+### Settings — Resume Preferences (also accessible at `/resume`)
+
 A full AI resume configuration panel with 6 sections:
 
 | Section | Fields |
@@ -160,6 +184,16 @@ A full AI resume configuration panel with 6 sections:
 
 **Resume Readiness Score** — live SVG ring (0–100), color-coded, shows exactly which fields are missing.
 **Auto-save** — debounced 2-second save after any change, with "Saved just now / Saved Xs ago" indicator.
+
+### Settings — AI Providers
+- **Live connection status**: disconnected → validating → connected / error (with error details displayed)
+- **Real API key validation**: backend calls `GET /v1/models` on OpenAI / Anthropic with 8-second timeout before storing
+- **AES-256-GCM encryption**: keys encrypted at rest; IV + auth tag stored in separate DB columns; `ENCRYPTION_KEY` required
+- **Model selector**: appears after successful connection
+  - OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`
+  - Anthropic: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`
+- **Test connection** button re-validates a stored key on demand
+- **Disconnect** removes the encrypted key and resets status to disconnected
 
 ### Admin Dashboard (`/admin/users`)
 Accessible only to users with `is_admin = true`.
@@ -216,9 +250,11 @@ Reusable chip-based input used throughout the app:
 | PUT | `/api/settings/preferences` | Update preferences |
 | GET | `/api/settings/resume-preferences` | Full AI resume config |
 | PUT | `/api/settings/resume-preferences` | Update AI resume config |
-| GET | `/api/settings/ai-providers` | Connected AI providers |
-| POST | `/api/settings/ai-providers` | Connect provider (stores key hint only) |
-| DELETE | `/api/settings/ai-providers/:provider` | Disconnect provider |
+| GET | `/api/settings/ai-providers` | Connected AI providers with status |
+| POST | `/api/settings/ai-providers` | Connect provider (validates key, encrypts with AES-256-GCM) |
+| DELETE | `/api/settings/ai-providers/:provider` | Disconnect provider, remove encrypted key |
+| POST | `/api/settings/ai-providers/:provider/test` | Re-validate stored key |
+| PUT | `/api/settings/ai-providers/:provider/model` | Set active model version |
 | GET | `/api/settings/subscription` | Plan, credits, billing info |
 
 ### Admin (requires `is_admin = true`)
@@ -259,7 +295,7 @@ Schema lives in `db/postgres_schema.sql`. Migrations in `db/migrations/` are app
 | `user_skills` | Per-user skill list |
 | `resume_preferences` | Full AI engine config (tone, targeting, safety rules) |
 | `user_preferences` | Notification + ATS preferences |
-| `ai_provider_connections` | OpenAI / Anthropic key hints |
+| `ai_provider_connections` | OpenAI / Anthropic — AES-256-GCM encrypted keys, selected model, connection status |
 | `jobs` + `companies` | Job catalog |
 | `user_job_states` + `job_score_runs` | User-specific job scores |
 | `documents` + `document_versions` | Resume vault |
@@ -288,6 +324,7 @@ Schema lives in `db/postgres_schema.sql`. Migrations in `db/migrations/` are app
 | `SMTP_USER` | *(optional)* | SMTP username |
 | `SMTP_PASS` | *(optional)* | SMTP password |
 | `SMTP_FROM` | `JobFlow AI <noreply@jobflow.ai>` | Sender name + address |
+| `ENCRYPTION_KEY` | *(required for AI providers)* | 64-char hex string (32 bytes) for AES-256-GCM key encryption — generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 
 > If SMTP is not configured, OTP codes and reset links are printed to the backend console.
 
@@ -309,7 +346,7 @@ Schema lives in `db/postgres_schema.sql`. Migrations in `db/migrations/` are app
 - CORS restricted to `CORS_ORIGIN`
 - Security headers via **Helmet**
 - All SQL uses parameterized queries (no string interpolation)
-- AI provider keys stored as hint only — use KMS / secrets manager in production
+- AI provider keys encrypted with **AES-256-GCM** at rest (IV + auth tag stored separately); decrypted server-side only for test calls
 
 ---
 
