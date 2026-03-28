@@ -6,7 +6,7 @@ import { z } from "zod";
 import { query, queryOne, transaction } from "../db/pool";
 import { validate } from "../middleware/validate";
 import { requireAuth, hashToken } from "../middleware/auth";
-import { sendVerificationEmail } from "../utils/email";
+import { sendVerificationEmail, sendPasswordResetEmail } from "../utils/email";
 
 const router = Router();
 
@@ -258,9 +258,9 @@ router.post("/forgot-password", validate(forgotSchema), async (req: Request, res
       [user.id, tokenHash, expiresAt]
     ).catch(() => {});
 
-    // TODO: send email with reset link containing rawToken
-    // e.g. sendResetEmail(email, rawToken);
-    console.log(`[auth] Password reset token for ${email}: ${rawToken}`);
+    await sendPasswordResetEmail(email, rawToken).catch((err) => {
+      console.error("[auth/forgot-password] Email send failed:", err);
+    });
   }
 
   res.json({ message: "If that email is registered, a reset link has been sent." });
