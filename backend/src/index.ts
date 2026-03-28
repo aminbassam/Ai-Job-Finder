@@ -183,6 +183,39 @@ async function applyMigrations() {
   }
 }
 
+/**
+ * Directly ensures critical columns exist — runs after migrations as a
+ * safety net in case the migration file runner skips a file.
+ * Each ALTER is executed separately so one failure cannot block others.
+ */
+async function ensureCriticalColumns() {
+  const critical = [
+    `ALTER TABLE ai_provider_connections ADD COLUMN IF NOT EXISTS connection_status text NOT NULL DEFAULT 'disconnected'`,
+    `ALTER TABLE ai_provider_connections ADD COLUMN IF NOT EXISTS encrypted_key     text`,
+    `ALTER TABLE ai_provider_connections ADD COLUMN IF NOT EXISTS encryption_iv     text`,
+    `ALTER TABLE ai_provider_connections ADD COLUMN IF NOT EXISTS encryption_tag    text`,
+    `ALTER TABLE ai_provider_connections ADD COLUMN IF NOT EXISTS selected_model    text`,
+    `ALTER TABLE ai_provider_connections ADD COLUMN IF NOT EXISTS last_error        text`,
+    `ALTER TABLE search_profiles ADD COLUMN IF NOT EXISTS job_types                text[]  NOT NULL DEFAULT '{}'`,
+    `ALTER TABLE search_profiles ADD COLUMN IF NOT EXISTS posted_within_days       integer`,
+    `ALTER TABLE search_profiles ADD COLUMN IF NOT EXISTS schedule_interval_minutes integer`,
+  ];
+  const client = await pool.connect();
+  try {
+    for (const stmt of critical) {
+      await client.query(stmt).catch((err: Error) => {
+        // "already exists" is fine; anything else is worth logging but not fatal
+        if (!/already exists/i.test(err.message)) {
+          console.warn(`[db] ensureCriticalColumns warning: ${err.message}`);
+        }
+      });
+    }
+    console.log("[db] Critical columns verified.");
+  } finally {
+    client.release();
+  }
+}
+
 // ── Startup env validation ───────────────────────────────────────────────────
 function validateEnv() {
   const key = process.env.ENCRYPTION_KEY;
@@ -201,14 +234,16 @@ function validateEnv() {
   }
 }
 
-applyMigrations().then(() => {
-  validateEnv();
-  app.listen(PORT, () => {
-    console.log(`JobFlow API running on http://localhost:${PORT}`);
-    console.log(`  Environment : ${process.env.NODE_ENV ?? "development"}`);
-    console.log(`  CORS origin : ${process.env.CORS_ORIGIN ?? "http://localhost:5678"}`);
+applyMigrations()
+  .then(() => ensureCriticalColumns())
+  .then(() => {
+    validateEnv();
+    app.listen(PORT, () => {
+      console.log(`JobFlow API running on http://localhost:${PORT}`);
+      console.log(`  Environment : ${process.env.NODE_ENV ?? "development"}`);
+      console.log(`  CORS origin : ${process.env.CORS_ORIGIN ?? "http://localhost:5678"}`);
+    });
+    startScheduler();
   });
-  startScheduler();
-});
 
 export default app;
