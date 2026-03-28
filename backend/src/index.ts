@@ -83,36 +83,96 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 // ── Start ────────────────────────────────────────────────────────────────────
 
+/**
+ * Split a SQL file into individual statements, correctly handling
+ * dollar-quoted blocks (DO $$ ... $$) and standard semicolons.
+ */
+function splitSql(sql: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let inDollarQuote = false;
+  let dollarTag = "";
+  let i = 0;
+
+  while (i < sql.length) {
+    // Detect start/end of $$ or $tag$ dollar-quote blocks
+    if (!inDollarQuote) {
+      const tagMatch = sql.slice(i).match(/^(\$[^$]*\$)/);
+      if (tagMatch) {
+        inDollarQuote = true;
+        dollarTag = tagMatch[1];
+        current += tagMatch[1];
+        i += tagMatch[1].length;
+        continue;
+      }
+    } else {
+      if (sql.slice(i).startsWith(dollarTag)) {
+        current += dollarTag;
+        i += dollarTag.length;
+        inDollarQuote = false;
+        dollarTag = "";
+        continue;
+      }
+    }
+
+    const ch = sql[i];
+    if (!inDollarQuote && ch === ";") {
+      const stmt = current.trim();
+      if (stmt) statements.push(stmt);
+      current = "";
+    } else {
+      current += ch;
+    }
+    i++;
+  }
+  const last = current.trim();
+  if (last) statements.push(last);
+  return statements;
+}
+
 async function applyMigrations() {
   const ROOT = join(__dirname, "../../");
   const migrations = [
-    { name: "001_email_verification", file: join(ROOT, "db/migrations/001_email_verification.sql") },
-    { name: "002_admin_role",         file: join(ROOT, "db/migrations/002_admin_role.sql") },
-    { name: "003_resume_preferences", file: join(ROOT, "db/migrations/003_resume_preferences.sql") },
-    { name: "004_ai_provider_fields", file: join(ROOT, "db/migrations/004_ai_provider_fields.sql") },
-    { name: "005_job_agent",          file: join(ROOT, "db/migrations/005_job_agent.sql") },
-    { name: "006_agent_profile_filters", file: join(ROOT, "db/migrations/006_agent_profile_filters.sql") },
+    { name: "001_email_verification",     file: join(ROOT, "db/migrations/001_email_verification.sql") },
+    { name: "002_admin_role",             file: join(ROOT, "db/migrations/002_admin_role.sql") },
+    { name: "003_resume_preferences",     file: join(ROOT, "db/migrations/003_resume_preferences.sql") },
+    { name: "004_ai_provider_fields",     file: join(ROOT, "db/migrations/004_ai_provider_fields.sql") },
+    { name: "005_job_agent",              file: join(ROOT, "db/migrations/005_job_agent.sql") },
+    { name: "006_agent_profile_filters",  file: join(ROOT, "db/migrations/006_agent_profile_filters.sql") },
+    { name: "007_fix_ai_provider_columns", file: join(ROOT, "db/migrations/007_fix_ai_provider_columns.sql") },
   ];
   const client = await pool.connect();
   try {
     for (const migration of migrations) {
-      try {
-        const sql = readFileSync(migration.file, "utf8");
-        await client.query(sql);
-        console.log(`[db] Migration applied: ${migration.name}`);
-      } catch (err) {
-        const message = (err as Error).message;
-        const isOwnershipRerunIssue =
-          /must be owner of table/i.test(message) ||
-          /must be owner of relation/i.test(message) ||
-          /already exists/i.test(message);
+      const sql = readFileSync(migration.file, "utf8");
+      const statements = splitSql(sql);
+      let skipped = 0;
+      let applied = 0;
 
-        if (isOwnershipRerunIssue) {
-          console.warn(`[db] Migration ${migration.name} skipped (already applied): ${message}`);
-          continue;
+      for (const stmt of statements) {
+        try {
+          await client.query(stmt);
+          applied++;
+        } catch (err) {
+          const message = (err as Error).message;
+          const isAlreadyApplied =
+            /must be owner of table/i.test(message) ||
+            /must be owner of relation/i.test(message) ||
+            /already exists/i.test(message);
+
+          if (isAlreadyApplied) {
+            skipped++;
+            continue;
+          }
+          console.error(`[db] Migration ${migration.name} FAILED on statement:\n${stmt}\nError: ${message}`);
+          throw err;
         }
-        console.error(`[db] Migration ${migration.name} FAILED: ${message}`);
-        throw err;
+      }
+
+      if (applied > 0) {
+        console.log(`[db] Migration applied: ${migration.name} (${applied} stmt${applied !== 1 ? "s" : ""}, ${skipped} skipped)`);
+      } else {
+        console.log(`[db] Migration already up to date: ${migration.name}`);
       }
     }
     console.log("[db] All migrations up to date.");

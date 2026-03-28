@@ -16,13 +16,52 @@ const ROOT = join(__dirname, "../../../");
 const baseSchema = { name: "schema", file: join(ROOT, "db/postgres_schema.sql") };
 
 const migrations = [
-  { name: "001_email_verification", file: join(ROOT, "db/migrations/001_email_verification.sql") },
-  { name: "002_admin_role",         file: join(ROOT, "db/migrations/002_admin_role.sql") },
-  { name: "003_resume_preferences", file: join(ROOT, "db/migrations/003_resume_preferences.sql") },
-  { name: "004_ai_provider_fields", file: join(ROOT, "db/migrations/004_ai_provider_fields.sql") },
-  { name: "005_job_agent",          file: join(ROOT, "db/migrations/005_job_agent.sql") },
-  { name: "006_agent_profile_filters", file: join(ROOT, "db/migrations/006_agent_profile_filters.sql") },
+  { name: "001_email_verification",     file: join(ROOT, "db/migrations/001_email_verification.sql") },
+  { name: "002_admin_role",             file: join(ROOT, "db/migrations/002_admin_role.sql") },
+  { name: "003_resume_preferences",     file: join(ROOT, "db/migrations/003_resume_preferences.sql") },
+  { name: "004_ai_provider_fields",     file: join(ROOT, "db/migrations/004_ai_provider_fields.sql") },
+  { name: "005_job_agent",              file: join(ROOT, "db/migrations/005_job_agent.sql") },
+  { name: "006_agent_profile_filters",  file: join(ROOT, "db/migrations/006_agent_profile_filters.sql") },
+  { name: "007_fix_ai_provider_columns", file: join(ROOT, "db/migrations/007_fix_ai_provider_columns.sql") },
 ];
+
+function splitSql(sql: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let inDollarQuote = false;
+  let dollarTag = "";
+  let i = 0;
+  while (i < sql.length) {
+    if (!inDollarQuote) {
+      const tagMatch = sql.slice(i).match(/^(\$[^$]*\$)/);
+      if (tagMatch) {
+        inDollarQuote = true;
+        dollarTag = tagMatch[1];
+        current += tagMatch[1];
+        i += tagMatch[1].length;
+        continue;
+      }
+    } else if (sql.slice(i).startsWith(dollarTag)) {
+      current += dollarTag;
+      i += dollarTag.length;
+      inDollarQuote = false;
+      dollarTag = "";
+      continue;
+    }
+    const ch = sql[i];
+    if (!inDollarQuote && ch === ";") {
+      const stmt = current.trim();
+      if (stmt) statements.push(stmt);
+      current = "";
+    } else {
+      current += ch;
+    }
+    i++;
+  }
+  const last = current.trim();
+  if (last) statements.push(last);
+  return statements;
+}
 
 async function run() {
   const client = await pool.connect();
@@ -40,7 +79,8 @@ async function run() {
     if (!schemaState?.exists) {
       console.log("[migrate] Applying: schema ...");
       const sql = readFileSync(baseSchema.file, "utf8");
-      await client.query(sql);
+      const stmts = splitSql(sql);
+      for (const stmt of stmts) await client.query(stmt);
       console.log("[migrate] Done: schema");
     } else {
       console.log("[migrate] Base schema already present, skipping schema step.");
@@ -49,22 +89,25 @@ async function run() {
     for (const m of migrations) {
       console.log(`[migrate] Applying: ${m.name} ...`);
       const sql = readFileSync(m.file, "utf8");
-      try {
-        await client.query(sql);
-        console.log(`[migrate] Done: ${m.name}`);
-      } catch (err) {
-        const message = (err as Error).message;
-        const isOwnershipRerunIssue =
-          /must be owner of table/i.test(message) ||
-          /must be owner of relation/i.test(message) ||
-          /already exists/i.test(message);
-
-        if (isOwnershipRerunIssue) {
-          console.warn(`[migrate] Skipping ${m.name}: ${message}`);
-          continue;
+      const statements = splitSql(sql);
+      let applied = 0;
+      let skipped = 0;
+      for (const stmt of statements) {
+        try {
+          await client.query(stmt);
+          applied++;
+        } catch (err) {
+          const message = (err as Error).message;
+          const isAlreadyApplied =
+            /must be owner of table/i.test(message) ||
+            /must be owner of relation/i.test(message) ||
+            /already exists/i.test(message);
+          if (isAlreadyApplied) { skipped++; continue; }
+          console.error(`[migrate] ${m.name} FAILED on:\n${stmt}\nError: ${message}`);
+          throw err;
         }
-        throw err;
       }
+      console.log(`[migrate] Done: ${m.name} (${applied} applied, ${skipped} skipped)`);
     }
     console.log("[migrate] All migrations applied successfully.");
   } finally {
