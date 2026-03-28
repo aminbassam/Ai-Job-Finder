@@ -11,6 +11,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { pool } from "../db/pool";
 import { runPipeline, PipelineProfile } from "../services/pipeline";
+import { fetchImportedJobDetails } from "../services/import-metadata";
 
 const router = Router();
 router.use(requireAuth);
@@ -316,8 +317,13 @@ router.post("/import", async (req, res) => {
     externalId: clientExternalId,
   } = req.body;
 
+  const imported =
+    typeof sourceUrl === "string" && sourceUrl.trim()
+      ? await fetchImportedJobDetails(sourceUrl.trim())
+      : null;
+
   // Auto-generate title from URL if not supplied
-  let resolvedTitle = (title ?? "").trim();
+  let resolvedTitle = (title ?? "").trim() || (imported?.title ?? "");
   if (!resolvedTitle && sourceUrl) {
     try {
       const u = new URL(sourceUrl);
@@ -331,6 +337,30 @@ router.post("/import", async (req, res) => {
     return res.status(400).json({ message: "Provide a job title or a valid URL." });
   }
 
+  const resolvedCompany =
+    (typeof company === "string" && company.trim() ? company.trim() : undefined) ??
+    imported?.company ??
+    null;
+  const resolvedLocation =
+    (typeof location === "string" && location.trim() ? location.trim() : undefined) ??
+    imported?.location ??
+    null;
+  const resolvedDescription =
+    (typeof description === "string" && description.trim() ? description.trim() : undefined) ??
+    imported?.description ??
+    null;
+  const resolvedRemote =
+    typeof remote === "boolean"
+      ? remote
+      : imported?.remote ?? false;
+  const resolvedRequirements = imported?.requirements ?? [];
+  const resolvedJobType = imported?.jobType ?? null;
+  const resolvedSalaryMin = imported?.salaryMin ?? null;
+  const resolvedSalaryMax = imported?.salaryMax ?? null;
+  const resolvedPostedAt = imported?.postedAt ?? null;
+  const resolvedSourceUrl = imported?.sourceUrl ?? sourceUrl ?? null;
+  const rawData = imported?.rawData ?? {};
+
   // Use client-provided externalId for deduplication (e.g. indeed_jk, linkedin_jobid)
   // or fall back to a random unique string
   const externalId =
@@ -342,15 +372,47 @@ router.post("/import", async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO job_matches (
         user_id, external_id, source, source_url, title, company,
-        location, remote, description, match_tier, scored_at, status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'new',now(),'new')
+        location, remote, job_type, description, requirements,
+        salary_min, salary_max, posted_at, raw_data,
+        match_tier, scored_at, status
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::text[],$12,$13,$14,$15,'new',now(),'new')
       ON CONFLICT (user_id, source, external_id) DO UPDATE
         SET source_url = EXCLUDED.source_url,
+            title = COALESCE(NULLIF(job_matches.title, ''), EXCLUDED.title),
+            company = COALESCE(job_matches.company, EXCLUDED.company),
+            location = COALESCE(job_matches.location, EXCLUDED.location),
+            remote = COALESCE(job_matches.remote, EXCLUDED.remote),
+            job_type = COALESCE(job_matches.job_type, EXCLUDED.job_type),
+            description = COALESCE(job_matches.description, EXCLUDED.description),
+            requirements = CASE
+              WHEN COALESCE(array_length(job_matches.requirements, 1), 0) = 0 THEN EXCLUDED.requirements
+              ELSE job_matches.requirements
+            END,
+            salary_min = COALESCE(job_matches.salary_min, EXCLUDED.salary_min),
+            salary_max = COALESCE(job_matches.salary_max, EXCLUDED.salary_max),
+            posted_at = COALESCE(job_matches.posted_at, EXCLUDED.posted_at),
+            raw_data = CASE
+              WHEN COALESCE(job_matches.raw_data, '{}'::jsonb) = '{}'::jsonb THEN EXCLUDED.raw_data
+              ELSE job_matches.raw_data || EXCLUDED.raw_data
+            END,
             updated_at = now()
       RETURNING *`,
       [
-        req.userId, externalId, source, sourceUrl ?? null, resolvedTitle,
-        company ?? null, location ?? null, remote ?? false, description ?? null,
+        req.userId,
+        externalId,
+        source,
+        resolvedSourceUrl,
+        resolvedTitle,
+        resolvedCompany,
+        resolvedLocation,
+        resolvedRemote,
+        resolvedJobType,
+        resolvedDescription,
+        resolvedRequirements,
+        resolvedSalaryMin,
+        resolvedSalaryMax,
+        resolvedPostedAt,
+        JSON.stringify(rawData),
       ]
     );
     res.status(201).json(toMatch(rows[0]));

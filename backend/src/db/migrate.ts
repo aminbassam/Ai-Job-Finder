@@ -13,17 +13,38 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const ROOT = join(__dirname, "../../../");
 
+const baseSchema = { name: "schema", file: join(ROOT, "db/postgres_schema.sql") };
+
 const migrations = [
-  { name: "schema", file: join(ROOT, "db/postgres_schema.sql") },
   { name: "001_email_verification", file: join(ROOT, "db/migrations/001_email_verification.sql") },
   { name: "002_admin_role",         file: join(ROOT, "db/migrations/002_admin_role.sql") },
   { name: "003_resume_preferences", file: join(ROOT, "db/migrations/003_resume_preferences.sql") },
   { name: "004_ai_provider_fields", file: join(ROOT, "db/migrations/004_ai_provider_fields.sql") },
+  { name: "005_job_agent",          file: join(ROOT, "db/migrations/005_job_agent.sql") },
 ];
 
 async function run() {
   const client = await pool.connect();
   try {
+    const {
+      rows: [schemaState],
+    } = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.tables
+         WHERE table_schema = 'public' AND table_name = 'account_users'
+       ) AS exists`
+    );
+
+    if (!schemaState?.exists) {
+      console.log("[migrate] Applying: schema ...");
+      const sql = readFileSync(baseSchema.file, "utf8");
+      await client.query(sql);
+      console.log("[migrate] Done: schema");
+    } else {
+      console.log("[migrate] Base schema already present, skipping schema step.");
+    }
+
     for (const m of migrations) {
       console.log(`[migrate] Applying: ${m.name} ...`);
       const sql = readFileSync(m.file, "utf8");
@@ -38,6 +59,6 @@ async function run() {
 }
 
 run().catch((err) => {
-  console.error("[migrate] Failed:", err.message);
+  console.error("[migrate] Failed:", err instanceof Error ? err.stack ?? err.message : err);
   process.exit(1);
 });
