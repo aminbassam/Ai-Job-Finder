@@ -147,6 +147,7 @@ export interface ImportPayload {
   company?: string;
   sourceUrl?: string;
   source?: string;
+  externalId?: string;
   description?: string;
   location?: string;
   remote?: boolean;

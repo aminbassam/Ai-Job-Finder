@@ -305,24 +305,59 @@ router.patch("/results/:id/status", async (req, res) => {
 
 // POST /api/agent/import — manual job import (from extension or paste)
 router.post("/import", async (req, res) => {
-  const { title, company, sourceUrl, source = "manual", description, location, remote } = req.body;
-  if (!title) return res.status(400).json({ message: "title is required." });
+  const {
+    title,
+    company,
+    sourceUrl,
+    source = "manual",
+    description,
+    location,
+    remote,
+    externalId: clientExternalId,
+  } = req.body;
+
+  // Auto-generate title from URL if not supplied
+  let resolvedTitle = (title ?? "").trim();
+  if (!resolvedTitle && sourceUrl) {
+    try {
+      const u = new URL(sourceUrl);
+      const host = u.hostname.replace(/^www\./, "").replace(/^jobs\./, "").split(".")[0];
+      resolvedTitle = `Job at ${host.charAt(0).toUpperCase()}${host.slice(1)}`;
+    } catch {
+      resolvedTitle = "Imported Job";
+    }
+  }
+  if (!resolvedTitle) {
+    return res.status(400).json({ message: "Provide a job title or a valid URL." });
+  }
+
+  // Use client-provided externalId for deduplication (e.g. indeed_jk, linkedin_jobid)
+  // or fall back to a random unique string
+  const externalId =
+    typeof clientExternalId === "string" && clientExternalId.trim()
+      ? clientExternalId.trim()
+      : `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   try {
-    const externalId = `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const { rows } = await pool.query(
       `INSERT INTO job_matches (
         user_id, external_id, source, source_url, title, company,
         location, remote, description, match_tier, scored_at, status
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'new',now(),'new')
+      ON CONFLICT (user_id, source, external_id) DO UPDATE
+        SET source_url = EXCLUDED.source_url,
+            updated_at = now()
       RETURNING *`,
-      [req.userId, externalId, source, sourceUrl ?? null, title, company ?? null,
-       location ?? null, remote ?? false, description ?? null]
+      [
+        req.userId, externalId, source, sourceUrl ?? null, resolvedTitle,
+        company ?? null, location ?? null, remote ?? false, description ?? null,
+      ]
     );
     res.status(201).json(toMatch(rows[0]));
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to import job." });
+    const msg = (err as Error).message;
+    console.error("[import]", msg);
+    res.status(500).json({ message: `Import failed: ${msg}` });
   }
 });
 

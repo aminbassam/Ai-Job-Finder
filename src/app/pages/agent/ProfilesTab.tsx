@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   Plus, Play, Pause, Pencil, Trash2, Clock, Zap,
-  Target, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp,
+  Target, AlertCircle, Loader2, ChevronDown, ChevronUp, RefreshCw,
 } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -16,8 +16,7 @@ import {
   getProfiles, createProfile, updateProfile, deleteProfile, runProfile,
 } from "../../services/agent.service";
 
-/* ──────────────── Helpers ──────────────────────────────────── */
-
+/* ──────────────── Segmented control ────────────────────────── */
 function SegCtrl({
   options, value, onChange,
 }: {
@@ -66,7 +65,6 @@ const BLANK: ProfileInput = {
 };
 
 /* ──────────────── Profile Form ─────────────────────────────── */
-
 function ProfileForm({
   initial,
   onSave,
@@ -78,6 +76,7 @@ function ProfileForm({
 }) {
   const [form, setForm] = useState<ProfileInput>(initial);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [advanced, setAdvanced] = useState(false);
 
   const upd = <K extends keyof ProfileInput>(k: K, v: ProfileInput[K]) =>
@@ -85,11 +84,10 @@ function ProfileForm({
 
   const sourceOptions = [
     { key: "greenhouse", label: "Greenhouse" },
-    { key: "lever", label: "Lever" },
-    { key: "upwork", label: "Upwork" },
-    { key: "ashby", label: "Ashby" },
+    { key: "lever",      label: "Lever" },
+    { key: "upwork",     label: "Upwork" },
+    { key: "ashby",      label: "Ashby" },
   ];
-
   const expOptions = ["Entry", "Mid-level", "Senior", "Lead", "Director"];
 
   function toggleSource(key: string) {
@@ -105,21 +103,45 @@ function ProfileForm({
   }
 
   async function handleSave() {
-    if (!form.name.trim()) return;
+    if (!form.name.trim()) {
+      setSaveError("Profile name is required.");
+      return;
+    }
+    if (form.sources.length === 0) {
+      setSaveError("Select at least one job source.");
+      return;
+    }
     setSaving(true);
-    try { await onSave(form); } finally { setSaving(false); }
+    setSaveError("");
+    try {
+      await onSave(form);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save profile.";
+      setSaveError(msg);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="space-y-5">
+      {saveError && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/20 text-[#EF4444] text-[13px]">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {saveError}
+        </div>
+      )}
+
       {/* Name */}
       <div>
         <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Profile Name *</Label>
         <Input
           value={form.name}
-          onChange={(e) => upd("name", e.target.value)}
+          onChange={(e) => { upd("name", e.target.value); setSaveError(""); }}
           placeholder="e.g. Senior PM — Remote US"
-          className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563]"
+          className={`bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] ${
+            saveError && !form.name.trim() ? "border-[#EF4444]" : ""
+          }`}
         />
       </div>
 
@@ -148,10 +170,7 @@ function ProfileForm({
         />
         <div className="flex gap-4 mt-2">
           <label className="flex items-center gap-2 text-[12px] text-[#9CA3AF] cursor-pointer">
-            <Switch
-              checked={form.remoteOnly}
-              onCheckedChange={(v) => upd("remoteOnly", v)}
-            />
+            <Switch checked={form.remoteOnly} onCheckedChange={(v) => upd("remoteOnly", v)} />
             Remote only
           </label>
           <label className={`flex items-center gap-2 text-[12px] cursor-pointer ${
@@ -205,13 +224,13 @@ function ProfileForm({
 
       {/* Sources */}
       <div>
-        <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Job Sources</Label>
+        <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Job Sources *</Label>
         <div className="flex flex-wrap gap-2">
           {sourceOptions.map((src) => (
             <button
               key={src.key}
               type="button"
-              onClick={() => toggleSource(src.key)}
+              onClick={() => { toggleSource(src.key); setSaveError(""); }}
               className={`px-3 py-1.5 rounded-lg text-[12px] border transition-all ${
                 form.sources.includes(src.key)
                   ? "bg-[#4F8CFF]/15 text-[#4F8CFF] border-[#4F8CFF]/30"
@@ -230,8 +249,8 @@ function ProfileForm({
           <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Search Frequency</Label>
           <SegCtrl
             options={[
-              { label: "6h", value: "6h" },
-              { label: "Daily", value: "daily" },
+              { label: "6h",       value: "6h"       },
+              { label: "Daily",    value: "daily"    },
               { label: "Weekdays", value: "weekdays" },
             ]}
             value={form.schedule}
@@ -242,9 +261,9 @@ function ProfileForm({
           <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Search Mode</Label>
           <SegCtrl
             options={[
-              { label: "Strict", value: "strict" },
+              { label: "Strict",   value: "strict"   },
               { label: "Balanced", value: "balanced" },
-              { label: "Broad", value: "broad" },
+              { label: "Broad",    value: "broad"    },
             ]}
             value={form.searchMode}
             onChange={(v) => upd("searchMode", v as ProfileInput["searchMode"])}
@@ -252,7 +271,7 @@ function ProfileForm({
         </div>
       </div>
 
-      {/* Advanced toggle */}
+      {/* Advanced */}
       <button
         type="button"
         onClick={() => setAdvanced((v) => !v)}
@@ -294,12 +313,9 @@ function ProfileForm({
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[13px] text-white">Auto-generate resume for strong matches</p>
-              <p className="text-[11px] text-[#6B7280]">Automatically tailors your resume for jobs above threshold</p>
+              <p className="text-[11px] text-[#6B7280]">Tailors your resume for jobs above threshold</p>
             </div>
-            <Switch
-              checked={form.autoResume}
-              onCheckedChange={(v) => upd("autoResume", v)}
-            />
+            <Switch checked={form.autoResume} onCheckedChange={(v) => upd("autoResume", v)} />
           </div>
         </div>
       )}
@@ -308,10 +324,13 @@ function ProfileForm({
       <div className="flex gap-3 pt-2">
         <Button
           onClick={handleSave}
-          disabled={!form.name.trim() || saving}
+          disabled={saving}
           className="bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white"
         >
-          {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : "Save Profile"}
+          {saving
+            ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</>
+            : "Save Profile"
+          }
         </Button>
         <Button variant="ghost" onClick={onCancel} className="text-[#9CA3AF] hover:text-white">
           Cancel
@@ -322,13 +341,8 @@ function ProfileForm({
 }
 
 /* ──────────────── Profile Card ─────────────────────────────── */
-
 function ProfileCard({
-  profile,
-  onEdit,
-  onDelete,
-  onToggle,
-  onRun,
+  profile, onEdit, onDelete, onToggle, onRun,
 }: {
   profile: SearchProfile;
   onEdit: () => void;
@@ -337,80 +351,63 @@ function ProfileCard({
   onRun: () => void;
 }) {
   const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState("");
 
   const scheduleLabel =
-    profile.schedule === "6h"
-      ? "Every 6 h"
-      : profile.schedule === "weekdays"
-      ? "Weekdays"
-      : "Daily";
-
-  const tierColor = (profile.strongMatches ?? 0) > 0 ? "text-[#10B981]" : "text-[#6B7280]";
+    profile.schedule === "6h" ? "Every 6 h"
+    : profile.schedule === "weekdays" ? "Weekdays"
+    : "Daily";
 
   async function handleRun() {
     setRunning(true);
-    try { await onRun(); } finally { setRunning(false); }
+    setRunError("");
+    try {
+      await onRun();
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "Run failed.");
+    } finally {
+      setRunning(false);
+    }
   }
 
   return (
-    <Card className={`bg-[#111827] border-[#1F2937] p-5 transition-colors ${
-      profile.isActive ? "" : "opacity-60"
-    }`}>
+    <Card className={`bg-[#111827] border-[#1F2937] p-5 transition-opacity ${profile.isActive ? "" : "opacity-60"}`}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <h3 className="text-[15px] font-semibold text-white truncate">{profile.name}</h3>
-            {profile.isActive ? (
-              <Badge className="bg-[#10B981]/10 text-[#10B981] border-[#10B981]/20 text-[10px] shrink-0">
-                Active
-              </Badge>
-            ) : (
-              <Badge className="bg-[#374151] text-[#9CA3AF] border-[#4B5563] text-[10px] shrink-0">
-                Paused
-              </Badge>
-            )}
+            {profile.isActive
+              ? <Badge className="bg-[#10B981]/10 text-[#10B981] border-[#10B981]/20 text-[10px] shrink-0">Active</Badge>
+              : <Badge className="bg-[#374151] text-[#9CA3AF] border-[#4B5563] text-[10px] shrink-0">Paused</Badge>
+            }
           </div>
           <div className="flex items-center gap-3 text-[11px] text-[#6B7280]">
-            <span className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />{scheduleLabel}
-            </span>
-            <span className="flex items-center gap-1">
-              <Target className="h-3 w-3" />{profile.sources.length} sources
-            </span>
+            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{scheduleLabel}</span>
+            <span className="flex items-center gap-1"><Target className="h-3 w-3" />{profile.sources.length} sources</span>
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleRun}
-            disabled={running}
-            title="Run now"
+            variant="ghost" size="sm" onClick={handleRun} disabled={running} title="Run now"
             className="h-8 w-8 p-0 text-[#6B7280] hover:text-[#4F8CFF] hover:bg-[#4F8CFF]/10"
           >
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           </Button>
           <Button
-            variant="ghost"
-            size="sm"
-            onClick={onToggle}
+            variant="ghost" size="sm" onClick={onToggle}
             title={profile.isActive ? "Pause" : "Resume"}
             className="h-8 w-8 p-0 text-[#6B7280] hover:text-white hover:bg-[#1F2937]"
           >
             <Pause className="h-4 w-4" />
           </Button>
           <Button
-            variant="ghost"
-            size="sm"
-            onClick={onEdit}
+            variant="ghost" size="sm" onClick={onEdit}
             className="h-8 w-8 p-0 text-[#6B7280] hover:text-white hover:bg-[#1F2937]"
           >
             <Pencil className="h-4 w-4" />
           </Button>
           <Button
-            variant="ghost"
-            size="sm"
-            onClick={onDelete}
+            variant="ghost" size="sm" onClick={onDelete}
             className="h-8 w-8 p-0 text-[#6B7280] hover:text-[#EF4444] hover:bg-[#EF4444]/10"
           >
             <Trash2 className="h-4 w-4" />
@@ -418,7 +415,12 @@ function ProfileCard({
         </div>
       </div>
 
-      {/* Chips */}
+      {runError && (
+        <div className="flex items-center gap-2 mb-3 p-2.5 rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/20 text-[#EF4444] text-[12px]">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />{runError}
+        </div>
+      )}
+
       {profile.jobTitles.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-3">
           {profile.jobTitles.slice(0, 4).map((t) => (
@@ -434,7 +436,6 @@ function ProfileCard({
         </div>
       )}
 
-      {/* Stats */}
       <div className="flex items-center gap-4 pt-3 border-t border-[#1F2937]">
         <div>
           <p className="text-[11px] text-[#6B7280]">Total matches</p>
@@ -442,14 +443,14 @@ function ProfileCard({
         </div>
         <div>
           <p className="text-[11px] text-[#6B7280]">Strong fits</p>
-          <p className={`text-[16px] font-bold ${tierColor}`}>{profile.strongMatches ?? 0}</p>
+          <p className={`text-[16px] font-bold ${(profile.strongMatches ?? 0) > 0 ? "text-[#10B981]" : "text-[#6B7280]"}`}>
+            {profile.strongMatches ?? 0}
+          </p>
         </div>
         {profile.lastRunAt && (
           <div className="ml-auto text-right">
             <p className="text-[11px] text-[#6B7280]">Last run</p>
-            <p className="text-[11px] text-[#9CA3AF]">
-              {new Date(profile.lastRunAt).toLocaleDateString()}
-            </p>
+            <p className="text-[11px] text-[#9CA3AF]">{new Date(profile.lastRunAt).toLocaleDateString()}</p>
           </div>
         )}
       </div>
@@ -458,21 +459,23 @@ function ProfileCard({
 }
 
 /* ──────────────── Main Tab ─────────────────────────────────── */
-
 export function ProfilesTab() {
   const [profiles, setProfiles] = useState<SearchProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState("");
 
   async function load() {
     setLoading(true);
+    setLoadError("");
     try {
       const data = await getProfiles();
       setProfiles(data);
-    } catch {
-      setError("Failed to load profiles.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not load profiles.";
+      setLoadError(msg);
     } finally {
       setLoading(false);
     }
@@ -481,32 +484,43 @@ export function ProfilesTab() {
   useEffect(() => { load(); }, []);
 
   async function handleCreate(data: ProfileInput) {
-    const p = await createProfile(data);
+    const p = await createProfile(data); // throws on error — caught in ProfileForm
     setProfiles((prev) => [p, ...prev]);
     setCreating(false);
   }
 
   async function handleUpdate(id: string, data: ProfileInput) {
-    const p = await updateProfile(id, data);
+    const p = await updateProfile(id, data); // throws on error — caught in ProfileForm
     setProfiles((prev) => prev.map((x) => (x.id === id ? p : x)));
     setEditingId(null);
   }
 
   async function handleDelete(id: string) {
-    await deleteProfile(id);
-    setProfiles((prev) => prev.filter((p) => p.id !== id));
+    setActionError("");
+    try {
+      await deleteProfile(id);
+      setProfiles((prev) => prev.filter((p) => p.id !== id));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to delete profile.");
+    }
   }
 
   async function handleToggle(p: SearchProfile) {
-    const updated = await updateProfile(p.id, { isActive: !p.isActive } as Partial<ProfileInput>);
-    setProfiles((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
+    setActionError("");
+    try {
+      const updated = await updateProfile(p.id, { isActive: !p.isActive } as Partial<ProfileInput>);
+      setProfiles((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to update profile.");
+    }
   }
 
   async function handleRun(id: string) {
-    await runProfile(id);
+    await runProfile(id); // throws on error — caught in ProfileCard
     setTimeout(load, 3000);
   }
 
+  /* Loading state */
   if (loading)
     return (
       <div className="flex items-center justify-center py-16">
@@ -514,12 +528,56 @@ export function ProfilesTab() {
       </div>
     );
 
+  /* Error state — can't load at all */
+  if (loadError && profiles.length === 0)
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-[#EF4444]/10 border border-[#EF4444]/20">
+          <AlertCircle className="h-5 w-5 text-[#EF4444] shrink-0 mt-0.5" />
+          <div>
+            <p className="text-[14px] font-medium text-[#EF4444]">Failed to load profiles</p>
+            <p className="text-[12px] text-[#EF4444]/70 mt-0.5">{loadError}</p>
+            <p className="text-[12px] text-[#9CA3AF] mt-2">
+              Make sure the backend is running and the database migration has been applied.
+            </p>
+          </div>
+        </div>
+        <Button
+          onClick={load}
+          variant="outline"
+          className="border-[#374151] text-[#9CA3AF] hover:text-white"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+
   return (
     <div className="space-y-5">
-      {error && (
+      {/* Non-blocking action error (delete/toggle failed) */}
+      {actionError && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/20 text-[#EF4444] text-[13px]">
           <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
+          {actionError}
+          <button
+            type="button"
+            onClick={() => setActionError("")}
+            className="ml-auto text-[#EF4444]/60 hover:text-[#EF4444]"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Partial load error — show banner but still show cached profiles */}
+      {loadError && profiles.length > 0 && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-[#F59E0B]/10 border border-[#F59E0B]/20 text-[#F59E0B] text-[12px]">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          Refresh failed: {loadError}
+          <button type="button" onClick={load} className="ml-auto underline hover:no-underline">
+            Retry
+          </button>
         </div>
       )}
 
@@ -534,17 +592,14 @@ export function ProfilesTab() {
           />
         </Card>
       ) : (
-        <Button
-          onClick={() => setCreating(true)}
-          className="bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white"
-        >
+        <Button onClick={() => setCreating(true)} className="bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white">
           <Plus className="h-4 w-4 mr-2" />
           New Search Profile
         </Button>
       )}
 
-      {/* Profile list */}
-      {profiles.length === 0 && !creating ? (
+      {/* Empty state */}
+      {profiles.length === 0 && !creating && (
         <Card className="bg-[#111827] border-dashed border-[#374151] p-12 text-center">
           <div className="flex justify-center mb-4">
             <div className="h-12 w-12 rounded-xl bg-[#4F8CFF]/10 flex items-center justify-center">
@@ -561,7 +616,10 @@ export function ProfilesTab() {
             Create First Profile
           </Button>
         </Card>
-      ) : (
+      )}
+
+      {/* Profile list */}
+      {profiles.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {profiles.map((p) =>
             editingId === p.id ? (
