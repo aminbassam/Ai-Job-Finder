@@ -1,10 +1,13 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import { readFileSync } from "fs";
+import { join } from "path";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { pool } from "./db/pool";
 
 import authRouter        from "./routes/auth";
 import jobsRouter        from "./routes/jobs";
@@ -70,10 +73,32 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 // ── Start ────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`JobFlow API running on http://localhost:${PORT}`);
-  console.log(`  Environment : ${process.env.NODE_ENV ?? "development"}`);
-  console.log(`  CORS origin : ${process.env.CORS_ORIGIN ?? "http://localhost:5678"}`);
+
+async function applyMigrations() {
+  const ROOT = join(__dirname, "../../");
+  const migrations = [
+    join(ROOT, "db/migrations/001_email_verification.sql"),
+  ];
+  const client = await pool.connect();
+  try {
+    for (const file of migrations) {
+      const sql = readFileSync(file, "utf8");
+      await client.query(sql);
+    }
+    console.log("[db] Migrations applied.");
+  } catch (err) {
+    console.error("[db] Migration warning:", (err as Error).message);
+  } finally {
+    client.release();
+  }
+}
+
+applyMigrations().then(() => {
+  app.listen(PORT, () => {
+    console.log(`JobFlow API running on http://localhost:${PORT}`);
+    console.log(`  Environment : ${process.env.NODE_ENV ?? "development"}`);
+    console.log(`  CORS origin : ${process.env.CORS_ORIGIN ?? "http://localhost:5678"}`);
+  });
 });
 
 export default app;
