@@ -7,6 +7,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import bcrypt from "bcryptjs";
 import { pool } from "./pool";
 
 async function seed() {
@@ -225,6 +226,45 @@ async function seed() {
         );
       }
     }
+  }
+
+  // ── Superadmin account ───────────────────────────────────────────────────────
+  const ADMIN_EMAIL    = "admin@jobflow.ai";
+  const ADMIN_PASSWORD = "Admin@123456";
+
+  const { rows: existingAdmin } = await pool.query(
+    `SELECT id FROM account_users WHERE email = $1`,
+    [ADMIN_EMAIL]
+  );
+
+  if (existingAdmin.length === 0) {
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+
+    const { rows: adminRows } = await pool.query(
+      `INSERT INTO account_users
+         (email, password_hash, first_name, last_name, email_verified_at)
+       VALUES ($1, $2, 'Super', 'Admin', NOW())
+       RETURNING id`,
+      [ADMIN_EMAIL, passwordHash]
+    );
+    const adminId = adminRows[0].id;
+
+    await pool.query(`INSERT INTO user_profiles (user_id) VALUES ($1)`, [adminId]);
+    await pool.query(`INSERT INTO user_preferences (user_id) VALUES ($1)`, [adminId]);
+    await pool.query(
+      `INSERT INTO user_subscriptions (user_id, plan_code, status) VALUES ($1, 'agency', 'active')`,
+      [adminId]
+    );
+    await pool.query(
+      `INSERT INTO user_credit_ledger (user_id, delta, reason) VALUES ($1, 5000, 'superadmin_grant')`,
+      [adminId]
+    );
+
+    console.log("Superadmin created:");
+    console.log(`  Email   : ${ADMIN_EMAIL}`);
+    console.log(`  Password: ${ADMIN_PASSWORD}`);
+  } else {
+    console.log(`Superadmin already exists (${ADMIN_EMAIL}) — skipped.`);
   }
 
   console.log("Seed complete.");
