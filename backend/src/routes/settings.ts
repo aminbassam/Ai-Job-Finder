@@ -3,6 +3,7 @@ import { z } from "zod";
 import { query, queryOne } from "../db/pool";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { encrypt, decrypt } from "../utils/encryption";
 
 const router = Router();
 router.use(requireAuth);
@@ -71,23 +72,66 @@ router.put("/preferences", validate(prefsSchema), async (req: Request, res: Resp
   }
 });
 
+// ── Helpers: AI provider test calls ──────────────────────────────────────────
+
+async function testOpenAiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await fetch("https://api.openai.com/v1/models", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (r.ok) return { ok: true };
+    const body = await r.json().catch(() => ({})) as { error?: { message?: string } };
+    return { ok: false, error: body?.error?.message ?? `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+async function testAnthropicKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/models", {
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (r.ok) return { ok: true };
+    const body = await r.json().catch(() => ({})) as { error?: { message?: string } };
+    return { ok: false, error: body?.error?.message ?? `HTTP ${r.status}` };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 // ── GET /api/settings/ai-providers ───────────────────────────────────────────
 
 router.get("/ai-providers", async (req: Request, res: Response): Promise<void> => {
   try {
     const rows = await query<Record<string, unknown>>(
-      `SELECT provider, is_connected, is_default, key_hint, last_validated_at
+      `SELECT provider, connection_status, is_default, key_hint,
+              selected_model, last_validated_at, last_error
        FROM ai_provider_connections WHERE user_id = $1`,
       [req.userId]
     );
-    res.json(rows);
+    // Never return encrypted key material to client
+    res.json(rows.map((r) => ({
+      provider:        r.provider,
+      status:          r.connection_status ?? "disconnected",
+      isDefault:       r.is_default,
+      keyHint:         r.key_hint,
+      selectedModel:   r.selected_model,
+      lastValidatedAt: r.last_validated_at,
+      lastError:       r.last_error,
+    })));
   } catch (err) {
     console.error("[settings/ai-providers/get]", err);
     res.status(500).json({ message: "Failed to fetch AI providers." });
   }
 });
 
-// ── POST /api/settings/ai-providers ─────────────────────────────────────────
+// ── POST /api/settings/ai-providers ──────────────────────────────────────────
 
 const aiKeySchema = z.object({
   provider: z.enum(["openai", "anthropic"]),
@@ -96,26 +140,141 @@ const aiKeySchema = z.object({
 
 router.post("/ai-providers", validate(aiKeySchema), async (req: Request, res: Response): Promise<void> => {
   const { provider, apiKey } = req.body as z.infer<typeof aiKeySchema>;
-
-  // In production: encrypt apiKey before storage using KMS or symmetric encryption.
-  // For now we store a hint only (last 4 chars) and never the full key in plaintext.
   const keyHint = `••••${apiKey.slice(-4)}`;
 
+  // Mark as validating immediately
   try {
     await query(
-      `INSERT INTO ai_provider_connections (user_id, provider, key_hint, is_connected, last_validated_at)
-       VALUES ($1, $2, $3, true, NOW())
+      `INSERT INTO ai_provider_connections
+         (user_id, provider, key_hint, connection_status, is_connected)
+       VALUES ($1, $2, $3, 'validating', false)
        ON CONFLICT (user_id, provider) DO UPDATE SET
-         key_hint         = EXCLUDED.key_hint,
-         is_connected     = true,
-         last_validated_at = NOW(),
-         updated_at       = NOW()`,
+         key_hint          = EXCLUDED.key_hint,
+         connection_status = 'validating',
+         is_connected      = false,
+         last_error        = NULL,
+         updated_at        = NOW()`,
       [req.userId, provider, keyHint]
     );
-    res.json({ message: `${provider} connected.`, keyHint });
   } catch (err) {
-    console.error("[settings/ai-providers/save]", err);
+    console.error("[ai-providers/save/pre]", err);
     res.status(500).json({ message: "Failed to save API key." });
+    return;
+  }
+
+  // Validate with real API
+  const test = provider === "openai"
+    ? await testOpenAiKey(apiKey)
+    : await testAnthropicKey(apiKey);
+
+  if (!test.ok) {
+    await query(
+      `UPDATE ai_provider_connections
+       SET connection_status = 'error', last_error = $3, updated_at = NOW()
+       WHERE user_id = $1 AND provider = $2`,
+      [req.userId, provider, test.error ?? "Validation failed."]
+    ).catch(() => {});
+    res.status(422).json({ message: test.error ?? "API key validation failed." });
+    return;
+  }
+
+  // Encrypt and store
+  try {
+    const enc = encrypt(apiKey);
+    const defaultModel = provider === "openai" ? "gpt-4o" : "claude-sonnet-4-6";
+    await query(
+      `UPDATE ai_provider_connections
+       SET connection_status  = 'connected',
+           is_connected       = true,
+           encrypted_key      = $3,
+           encryption_iv      = $4,
+           encryption_tag     = $5,
+           last_validated_at  = NOW(),
+           last_error         = NULL,
+           selected_model     = COALESCE(selected_model, $6),
+           updated_at         = NOW()
+       WHERE user_id = $1 AND provider = $2`,
+      [req.userId, provider, enc.encrypted, enc.iv, enc.tag, defaultModel]
+    );
+    const result = await queryOne<Record<string, unknown>>(
+      `SELECT connection_status, key_hint, selected_model, last_validated_at
+       FROM ai_provider_connections WHERE user_id = $1 AND provider = $2`,
+      [req.userId, provider]
+    );
+    res.json({
+      message:    `${provider} connected successfully.`,
+      status:     "connected",
+      keyHint,
+      selectedModel: result?.selected_model ?? defaultModel,
+    });
+  } catch (err) {
+    console.error("[ai-providers/save/encrypt]", err);
+    res.status(500).json({ message: "Failed to save encrypted key." });
+  }
+});
+
+// ── POST /api/settings/ai-providers/:provider/test ───────────────────────────
+
+router.post("/ai-providers/:provider/test", async (req: Request, res: Response): Promise<void> => {
+  const { provider } = req.params;
+  try {
+    const row = await queryOne<Record<string, unknown>>(
+      `SELECT encrypted_key, encryption_iv, encryption_tag
+       FROM ai_provider_connections
+       WHERE user_id = $1 AND provider = $2 AND is_connected = true`,
+      [req.userId, provider]
+    );
+    if (!row?.encrypted_key) {
+      res.status(404).json({ message: "No connected key found." });
+      return;
+    }
+    const apiKey = decrypt({
+      encrypted: String(row.encrypted_key),
+      iv:        String(row.encryption_iv),
+      tag:       String(row.encryption_tag),
+    });
+    const test = provider === "openai"
+      ? await testOpenAiKey(apiKey)
+      : await testAnthropicKey(apiKey);
+
+    const newStatus = test.ok ? "connected" : "error";
+    await query(
+      `UPDATE ai_provider_connections
+       SET connection_status = $3, last_error = $4,
+           last_validated_at = NOW(), updated_at = NOW()
+       WHERE user_id = $1 AND provider = $2`,
+      [req.userId, provider, newStatus, test.error ?? null]
+    );
+    res.json({
+      status:    newStatus,
+      lastError: test.error ?? null,
+    });
+  } catch (err) {
+    console.error("[ai-providers/test]", err);
+    res.status(500).json({ message: "Failed to test connection." });
+  }
+});
+
+// ── PUT /api/settings/ai-providers/:provider/model ───────────────────────────
+
+const modelSchema = z.object({
+  model: z.string().min(1).max(100),
+});
+
+router.put("/ai-providers/:provider/model", validate(modelSchema), async (req: Request, res: Response): Promise<void> => {
+  const { provider } = req.params;
+  const { model } = req.body as z.infer<typeof modelSchema>;
+  try {
+    await query(
+      `UPDATE ai_provider_connections
+       SET selected_model = $3, updated_at = NOW()
+       WHERE user_id = $1 AND provider = $2`,
+      [req.userId, provider, model]
+    );
+    res.json({ message: "Model updated.", model });
+  } catch (err) {
+    console.error("[ai-providers/model]", err);
+    res.status(500).json({ message: "Failed to update model." });
   }
 });
 
@@ -125,13 +284,15 @@ router.delete("/ai-providers/:provider", async (req: Request, res: Response): Pr
   try {
     await query(
       `UPDATE ai_provider_connections
-       SET is_connected = false, key_hint = NULL, updated_at = NOW()
+       SET is_connected = false, connection_status = 'disconnected',
+           encrypted_key = NULL, encryption_iv = NULL, encryption_tag = NULL,
+           key_hint = NULL, last_error = NULL, updated_at = NOW()
        WHERE user_id = $1 AND provider = $2`,
       [req.userId, req.params.provider]
     );
     res.json({ message: "Provider disconnected." });
   } catch (err) {
-    console.error("[settings/ai-providers/delete]", err);
+    console.error("[ai-providers/disconnect]", err);
     res.status(500).json({ message: "Failed to disconnect provider." });
   }
 });
@@ -185,41 +346,42 @@ const resumePrefsSchema = z.object({
 router.put("/resume-preferences", validate(resumePrefsSchema), async (req: Request, res: Response): Promise<void> => {
   const d = req.body as z.infer<typeof resumePrefsSchema>;
   try {
+    // Full upsert — always send all provided values, cast arrays explicitly
     await query(
       `INSERT INTO resume_preferences (user_id)
        VALUES ($1)
        ON CONFLICT (user_id) DO UPDATE SET
-         key_achievements            = COALESCE($2,  resume_preferences.key_achievements),
-         certifications              = COALESCE($3,  resume_preferences.certifications),
-         tools_technologies          = COALESCE($4,  resume_preferences.tools_technologies),
-         soft_skills                 = COALESCE($5,  resume_preferences.soft_skills),
-         target_roles                = COALESCE($6,  resume_preferences.target_roles),
-         seniority_level             = COALESCE($7,  resume_preferences.seniority_level),
-         industry_focus              = COALESCE($8,  resume_preferences.industry_focus),
-         must_have_keywords          = COALESCE($9,  resume_preferences.must_have_keywords),
-         ai_tone                     = COALESCE($10, resume_preferences.ai_tone),
-         resume_style                = COALESCE($11, resume_preferences.resume_style),
-         bullet_style                = COALESCE($12, resume_preferences.bullet_style),
-         ats_level                   = COALESCE($13, resume_preferences.ats_level),
-         include_cover_letters       = COALESCE($14, resume_preferences.include_cover_letters),
-         cover_letter_tone           = COALESCE($15, resume_preferences.cover_letter_tone),
-         cover_letter_length         = COALESCE($16, resume_preferences.cover_letter_length),
-         cover_letter_personalization = COALESCE($17, resume_preferences.cover_letter_personalization),
-         no_fake_experience          = COALESCE($18, resume_preferences.no_fake_experience),
-         no_change_titles            = COALESCE($19, resume_preferences.no_change_titles),
-         no_exaggerate_metrics       = COALESCE($20, resume_preferences.no_exaggerate_metrics),
-         only_rephrase               = COALESCE($21, resume_preferences.only_rephrase),
-         updated_at                  = NOW()`,
+         key_achievements             = COALESCE($2,   resume_preferences.key_achievements),
+         certifications               = COALESCE($3,   resume_preferences.certifications),
+         tools_technologies           = COALESCE($4::text[], resume_preferences.tools_technologies),
+         soft_skills                  = COALESCE($5::text[], resume_preferences.soft_skills),
+         target_roles                 = COALESCE($6::text[], resume_preferences.target_roles),
+         seniority_level              = COALESCE($7,   resume_preferences.seniority_level),
+         industry_focus               = COALESCE($8::text[], resume_preferences.industry_focus),
+         must_have_keywords           = COALESCE($9::text[], resume_preferences.must_have_keywords),
+         ai_tone                      = COALESCE($10,  resume_preferences.ai_tone),
+         resume_style                 = COALESCE($11,  resume_preferences.resume_style),
+         bullet_style                 = COALESCE($12,  resume_preferences.bullet_style),
+         ats_level                    = COALESCE($13,  resume_preferences.ats_level),
+         include_cover_letters        = COALESCE($14,  resume_preferences.include_cover_letters),
+         cover_letter_tone            = COALESCE($15,  resume_preferences.cover_letter_tone),
+         cover_letter_length          = COALESCE($16,  resume_preferences.cover_letter_length),
+         cover_letter_personalization = COALESCE($17,  resume_preferences.cover_letter_personalization),
+         no_fake_experience           = COALESCE($18,  resume_preferences.no_fake_experience),
+         no_change_titles             = COALESCE($19,  resume_preferences.no_change_titles),
+         no_exaggerate_metrics        = COALESCE($20,  resume_preferences.no_exaggerate_metrics),
+         only_rephrase                = COALESCE($21,  resume_preferences.only_rephrase),
+         updated_at                   = NOW()`,
       [
         req.userId,
         d.keyAchievements            ?? null,
         d.certifications             ?? null,
-        d.toolsTechnologies          ?? null,
-        d.softSkills                 ?? null,
-        d.targetRoles                ?? null,
+        d.toolsTechnologies          !== undefined ? d.toolsTechnologies : null,
+        d.softSkills                 !== undefined ? d.softSkills        : null,
+        d.targetRoles                !== undefined ? d.targetRoles       : null,
         d.seniorityLevel             ?? null,
-        d.industryFocus              ?? null,
-        d.mustHaveKeywords           ?? null,
+        d.industryFocus              !== undefined ? d.industryFocus     : null,
+        d.mustHaveKeywords           !== undefined ? d.mustHaveKeywords  : null,
         d.aiTone                     ?? null,
         d.resumeStyle                ?? null,
         d.bulletStyle                ?? null,

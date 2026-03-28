@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { User, FileText, Sparkles, Bell, CreditCard } from "lucide-react";
 import { ResumePreferencesTab } from "./settings/ResumePreferencesTab";
+import { AiProvidersTab } from "./settings/AiProvidersTab";
 import { Card } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { LocationInput } from "../components/ui/location-input";
-import { Textarea } from "../components/ui/textarea";
 import { Button } from "../components/ui/button";
 import { Switch } from "../components/ui/switch";
 import { Badge } from "../components/ui/badge";
@@ -54,23 +54,39 @@ export function Settings() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // field-level validation errors
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
   async function handleProfileSave() {
+    // Client-side validation
+    const errors: Record<string, string> = {};
+    if (!firstName.trim()) errors.firstName = "First name is required.";
+    if (!lastName.trim())  errors.lastName  = "Last name is required.";
+    if (linkedinUrl && !/^https?:\/\//i.test(linkedinUrl)) {
+      errors.linkedinUrl = "Must be a valid URL starting with https://";
+    }
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
     setProfileSaving(true);
     setProfileError(null);
     setProfileSuccess(false);
     try {
       await profileService.updateProfile({
-        firstName,
-        lastName,
-        location,
-        currentTitle,
-        linkedinUrl,
+        firstName: firstName.trim(),
+        lastName:  lastName.trim(),
+        location:  location  || null,
+        currentTitle: currentTitle || null,
+        linkedinUrl:  linkedinUrl  || null,
       });
-      // Sync name/location back to auth context so sidebar reflects changes instantly
-      updateUser({ firstName, lastName, location });
+      updateUser({ firstName: firstName.trim(), lastName: lastName.trim(), location });
       setProfileSuccess(true);
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : "Failed to save profile.");
+      // Surface structured validation errors from backend if present
+      const msg = err instanceof Error ? err.message : "Failed to save profile.";
+      setProfileError(msg);
     } finally {
       setProfileSaving(false);
     }
@@ -124,20 +140,30 @@ export function Settings() {
               <div className="space-y-5 max-w-2xl">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-[13px] text-[#9CA3AF] mb-2 block">First Name</Label>
+                    <Label className="text-[13px] text-[#9CA3AF] mb-2 block">
+                      First Name <span className="text-[#EF4444]">*</span>
+                    </Label>
                     <Input
                       value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
-                      className="bg-[#0B0F14] border-[#1F2937] text-white"
+                      onChange={(e) => { setFirstName(e.target.value); setFieldErrors((p) => ({ ...p, firstName: "" })); }}
+                      className={`bg-[#0B0F14] text-white ${fieldErrors.firstName ? "border-[#EF4444]" : "border-[#1F2937]"}`}
                     />
+                    {fieldErrors.firstName && (
+                      <p className="text-[11px] text-[#EF4444] mt-1">{fieldErrors.firstName}</p>
+                    )}
                   </div>
                   <div>
-                    <Label className="text-[13px] text-[#9CA3AF] mb-2 block">Last Name</Label>
+                    <Label className="text-[13px] text-[#9CA3AF] mb-2 block">
+                      Last Name <span className="text-[#EF4444]">*</span>
+                    </Label>
                     <Input
                       value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
-                      className="bg-[#0B0F14] border-[#1F2937] text-white"
+                      onChange={(e) => { setLastName(e.target.value); setFieldErrors((p) => ({ ...p, lastName: "" })); }}
+                      className={`bg-[#0B0F14] text-white ${fieldErrors.lastName ? "border-[#EF4444]" : "border-[#1F2937]"}`}
                     />
+                    {fieldErrors.lastName && (
+                      <p className="text-[11px] text-[#EF4444] mt-1">{fieldErrors.lastName}</p>
+                    )}
                   </div>
                 </div>
 
@@ -176,10 +202,13 @@ export function Settings() {
                   <Label className="text-[13px] text-[#9CA3AF] mb-2 block">LinkedIn Profile</Label>
                   <Input
                     value={linkedinUrl}
-                    onChange={(e) => setLinkedinUrl(e.target.value)}
+                    onChange={(e) => { setLinkedinUrl(e.target.value); setFieldErrors((p) => ({ ...p, linkedinUrl: "" })); }}
                     placeholder="https://linkedin.com/in/..."
-                    className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563]"
+                    className={`bg-[#0B0F14] text-white placeholder:text-[#4B5563] ${fieldErrors.linkedinUrl ? "border-[#EF4444]" : "border-[#1F2937]"}`}
                   />
+                  {fieldErrors.linkedinUrl && (
+                    <p className="text-[11px] text-[#EF4444] mt-1">{fieldErrors.linkedinUrl}</p>
+                  )}
                 </div>
 
                 {profileError && (
@@ -239,68 +268,7 @@ export function Settings() {
         <TabsContent value="ai">
           <Card className="bg-[#111827] border-[#1F2937] p-6">
             <h2 className="text-[20px] font-semibold text-white mb-6">AI Provider Settings</h2>
-            <div className="space-y-6 max-w-2xl">
-              <div className="p-5 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className="text-[16px] font-semibold text-white mb-1">OpenAI (ChatGPT)</h3>
-                    <p className="text-[12px] text-[#9CA3AF]">Use GPT-4 for resume generation and job analysis</p>
-                  </div>
-                  <Badge className="bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/30">
-                    Connected
-                  </Badge>
-                </div>
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-[13px] text-[#9CA3AF] mb-2 block">API Key</Label>
-                    <Input
-                      type="password"
-                      defaultValue="sk-••••••••••••••••"
-                      className="bg-[#111827] border-[#1F2937] text-white"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="bg-[#1F2937] hover:bg-[#374151] text-white border-[#374151]">
-                      Update Key
-                    </Button>
-                    <Button variant="outline" size="sm" className="text-[#EF4444] hover:text-[#EF4444] border-[#EF4444]/30 hover:bg-[#EF4444]/10">
-                      Disconnect
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-5 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className="text-[16px] font-semibold text-white mb-1">Anthropic (Claude)</h3>
-                    <p className="text-[12px] text-[#9CA3AF]">Use Claude for detailed job matching</p>
-                  </div>
-                  <Badge variant="outline" className="border-[#374151] text-[#9CA3AF]">
-                    Not Connected
-                  </Badge>
-                </div>
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-[13px] text-[#9CA3AF] mb-2 block">API Key</Label>
-                    <Input
-                      type="password"
-                      placeholder="sk-ant-..."
-                      className="bg-[#111827] border-[#1F2937] text-white placeholder:text-[#9CA3AF]"
-                    />
-                  </div>
-                  <Button className="bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white">
-                    Connect Claude
-                  </Button>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-lg bg-[#4F8CFF]/5 border border-[#4F8CFF]/20">
-                <p className="text-[13px] text-[#9CA3AF]">
-                  <span className="font-semibold text-[#4F8CFF]">Default Provider:</span> OpenAI (GPT-4)
-                </p>
-              </div>
-            </div>
+            <AiProvidersTab />
           </Card>
         </TabsContent>
 

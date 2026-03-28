@@ -18,6 +18,7 @@ const migrations = [
   { name: "001_email_verification", file: join(ROOT, "db/migrations/001_email_verification.sql") },
   { name: "002_admin_role",         file: join(ROOT, "db/migrations/002_admin_role.sql") },
   { name: "003_resume_preferences", file: join(ROOT, "db/migrations/003_resume_preferences.sql") },
+  { name: "004_ai_provider_fields", file: join(ROOT, "db/migrations/004_ai_provider_fields.sql") },
 ];
 
 async function run() {
