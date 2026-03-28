@@ -99,6 +99,7 @@ async function applyMigrations() {
       try {
         const sql = readFileSync(migration.file, "utf8");
         await client.query(sql);
+        console.log(`[db] Migration applied: ${migration.name}`);
       } catch (err) {
         const message = (err as Error).message;
         const isOwnershipRerunIssue =
@@ -107,21 +108,41 @@ async function applyMigrations() {
           /already exists/i.test(message);
 
         if (isOwnershipRerunIssue) {
-          console.warn(`[db] Migration ${migration.name} skipped: ${message}`);
+          console.warn(`[db] Migration ${migration.name} skipped (already applied): ${message}`);
           continue;
         }
+        console.error(`[db] Migration ${migration.name} FAILED: ${message}`);
         throw err;
       }
     }
-    console.log("[db] Migrations applied.");
+    console.log("[db] All migrations up to date.");
   } catch (err) {
-    console.error("[db] Migration warning:", (err as Error).message);
+    console.error("[db] Migration error:", (err as Error).message);
   } finally {
     client.release();
   }
 }
 
+// ── Startup env validation ───────────────────────────────────────────────────
+function validateEnv() {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    console.error("[startup] FATAL: ENCRYPTION_KEY is not set. AI provider keys cannot be stored.");
+    console.error("[startup] Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"");
+    process.exit(1);
+  }
+  const buf = Buffer.from(key, "hex");
+  if (buf.length !== 32) {
+    console.error(`[startup] FATAL: ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes). Got ${key.length} chars / ${buf.length} bytes.`);
+    process.exit(1);
+  }
+  if (!process.env.JWT_SECRET) {
+    console.warn("[startup] WARNING: JWT_SECRET is not set. Using an insecure default. Set it in backend/.env.");
+  }
+}
+
 applyMigrations().then(() => {
+  validateEnv();
   app.listen(PORT, () => {
     console.log(`JobFlow API running on http://localhost:${PORT}`);
     console.log(`  Environment : ${process.env.NODE_ENV ?? "development"}`);

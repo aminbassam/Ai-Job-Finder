@@ -127,7 +127,8 @@ router.get("/ai-providers", async (req: Request, res: Response): Promise<void> =
     })));
   } catch (err) {
     console.error("[settings/ai-providers/get]", err);
-    res.status(500).json({ message: "Failed to fetch AI providers." });
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ message: `Failed to fetch AI providers: ${msg}` });
   }
 });
 
@@ -158,7 +159,8 @@ router.post("/ai-providers", validate(aiKeySchema), async (req: Request, res: Re
     );
   } catch (err) {
     console.error("[ai-providers/save/pre]", err);
-    res.status(500).json({ message: "Failed to save API key." });
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ message: `Failed to save API key: ${msg}` });
     return;
   }
 
@@ -209,7 +211,8 @@ router.post("/ai-providers", validate(aiKeySchema), async (req: Request, res: Re
     });
   } catch (err) {
     console.error("[ai-providers/save/encrypt]", err);
-    res.status(500).json({ message: "Failed to save encrypted key." });
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ message: `Failed to save encrypted key: ${msg}` });
   }
 });
 
@@ -251,7 +254,8 @@ router.post("/ai-providers/:provider/test", async (req: Request, res: Response):
     });
   } catch (err) {
     console.error("[ai-providers/test]", err);
-    res.status(500).json({ message: "Failed to test connection." });
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ message: `Failed to test connection: ${msg}` });
   }
 });
 
