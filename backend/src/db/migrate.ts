@@ -16,6 +16,8 @@ const ROOT = join(__dirname, "../../../");
 const migrations = [
   { name: "schema", file: join(ROOT, "db/postgres_schema.sql") },
   { name: "001_email_verification", file: join(ROOT, "db/migrations/001_email_verification.sql") },
+  { name: "002_admin_role",         file: join(ROOT, "db/migrations/002_admin_role.sql") },
+  { name: "003_resume_preferences", file: join(ROOT, "db/migrations/003_resume_preferences.sql") },
 ];
 
 async function run() {

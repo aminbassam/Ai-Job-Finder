@@ -85,6 +85,7 @@ async function applyMigrations() {
   const migrations = [
     join(ROOT, "db/migrations/001_email_verification.sql"),
     join(ROOT, "db/migrations/002_admin_role.sql"),
+    join(ROOT, "db/migrations/003_resume_preferences.sql"),
   ];
   const client = await pool.connect();
   try {
