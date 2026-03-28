@@ -12,6 +12,7 @@ import { Settings } from "./pages/Settings";
 import { Login } from "./pages/auth/Login";
 import { Signup } from "./pages/auth/Signup";
 import { ForgotPassword } from "./pages/auth/ForgotPassword";
+import { VerifyEmail } from "./pages/auth/VerifyEmail";
 
 export const router = createBrowserRouter([
   /* ── Auth routes (redirect to dashboard if already logged in) ── */
@@ -38,6 +39,11 @@ export const router = createBrowserRouter([
         <ForgotPassword />
       </GuestRoute>
     ),
+  },
+  {
+    // Standalone — VerifyEmail handles its own auth checks internally
+    path: "/auth/verify-email",
+    element: <VerifyEmail />,
   },
 
   /* ── App routes (redirect to login if not logged in) ── */

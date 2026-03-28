@@ -16,6 +16,7 @@ export interface User {
   aiCredits: number;
   totalCredits: number;
   location?: string;
+  emailVerified: boolean;
 }
 
 interface AuthState {

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { query, queryOne, transaction } from "../db/pool";
 import { validate } from "../middleware/validate";
 import { requireAuth, hashToken } from "../middleware/auth";
+import { sendVerificationEmail } from "../utils/email";
 
 const router = Router();
 
@@ -42,12 +43,41 @@ async function createSession(
   return token;
 }
 
+// ── OTP helpers ──────────────────────────────────────────────────────────────
+
+function generateOtp(): string {
+  // Cryptographically random 6-digit code
+  return (crypto.randomInt(100000, 999999)).toString();
+}
+
+async function createVerificationToken(userId: string): Promise<string> {
+  const code = generateOtp();
+  const codeHash = crypto.createHash("sha256").update(code).digest("hex");
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 min
+
+  // Invalidate any existing pending tokens first
+  await query(
+    `UPDATE email_verification_tokens SET used_at = NOW()
+     WHERE user_id = $1 AND used_at IS NULL`,
+    [userId]
+  );
+
+  await query(
+    `INSERT INTO email_verification_tokens (user_id, code_hash, expires_at)
+     VALUES ($1, $2, $3)`,
+    [userId, codeHash, expiresAt]
+  );
+
+  return code;
+}
+
 async function buildUserResponse(userId: string) {
   const user = await queryOne<{
     id: string; email: string; first_name: string; last_name: string;
-    location_text: string | null;
+    location_text: string | null; email_verified_at: string | null;
   }>(
-    `SELECT id, email, first_name, last_name, location_text FROM account_users WHERE id = $1`,
+    `SELECT id, email, first_name, last_name, location_text, email_verified_at
+     FROM account_users WHERE id = $1`,
     [userId]
   );
   if (!user) throw new Error("User not found");
@@ -79,6 +109,7 @@ async function buildUserResponse(userId: string) {
     plan: (sub?.plan_code ?? "free") as "free" | "pro" | "agency",
     aiCredits,
     totalCredits,
+    emailVerified: user.email_verified_at !== null,
   };
 }
 
@@ -130,6 +161,13 @@ router.post("/signup", validate(signupSchema), async (req: Request, res: Respons
       return userId;
     });
 
+    // Generate OTP and send verification email
+    const code = await createVerificationToken(userId);
+    await sendVerificationEmail(email, code).catch((err) => {
+      console.error("[auth/signup] Failed to send verification email:", err);
+    });
+
+    // Create session — user is authenticated but emailVerified = false until they verify
     const token = await createSession(userId, req);
     const user = await buildUserResponse(userId);
 
@@ -261,6 +299,87 @@ router.post("/reset-password", validate(resetSchema), async (req: Request, res: 
   });
 
   res.json({ message: "Password has been reset. Please sign in with your new password." });
+});
+
+// ── POST /api/auth/send-verification ─────────────────────────────────────────
+
+router.post("/send-verification", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const userId = req.userId;
+
+  const user = await queryOne<{ email: string; email_verified_at: string | null }>(
+    `SELECT email, email_verified_at FROM account_users WHERE id = $1`,
+    [userId]
+  );
+
+  if (!user) {
+    res.status(404).json({ message: "User not found." });
+    return;
+  }
+
+  if (user.email_verified_at) {
+    res.json({ message: "Email is already verified." });
+    return;
+  }
+
+  const code = await createVerificationToken(userId);
+  await sendVerificationEmail(user.email, code).catch((err) => {
+    console.error("[auth/send-verification] Email send failed:", err);
+  });
+
+  res.json({ message: "Verification email sent." });
+});
+
+// ── POST /api/auth/verify-email ───────────────────────────────────────────────
+
+const verifyEmailSchema = z.object({
+  code: z.string().length(6).regex(/^\d{6}$/, "Code must be 6 digits"),
+});
+
+router.post("/verify-email", requireAuth, validate(verifyEmailSchema), async (req: Request, res: Response): Promise<void> => {
+  const { code } = req.body as z.infer<typeof verifyEmailSchema>;
+  const userId = req.userId;
+
+  // Find the most recent active token for this user
+  const record = await queryOne<{ id: string; code_hash: string; attempts: number }>(
+    `SELECT id, code_hash, attempts
+     FROM email_verification_tokens
+     WHERE user_id = $1 AND expires_at > NOW() AND used_at IS NULL
+     ORDER BY created_at DESC LIMIT 1`,
+    [userId]
+  );
+
+  if (!record) {
+    res.status(400).json({ message: "No active verification code. Please request a new one." });
+    return;
+  }
+
+  if (record.attempts >= 5) {
+    res.status(429).json({ message: "Too many failed attempts. Please request a new code." });
+    return;
+  }
+
+  const codeHash = crypto.createHash("sha256").update(code).digest("hex");
+
+  if (codeHash !== record.code_hash) {
+    await query(
+      `UPDATE email_verification_tokens SET attempts = attempts + 1 WHERE id = $1`,
+      [record.id]
+    );
+    const remaining = 4 - record.attempts;
+    res.status(400).json({
+      message: `Incorrect code. ${remaining > 0 ? `${remaining} attempt${remaining === 1 ? "" : "s"} remaining.` : "Please request a new code."}`,
+    });
+    return;
+  }
+
+  // Code is valid — mark used and verify the account
+  await transaction(async (q) => {
+    await q(`UPDATE email_verification_tokens SET used_at = NOW() WHERE id = $1`, [record.id]);
+    await q(`UPDATE account_users SET email_verified_at = NOW() WHERE id = $1`, [userId]);
+  });
+
+  const user = await buildUserResponse(userId);
+  res.json({ user });
 });
 
 // ── GET /api/auth/me ─────────────────────────────────────────────────────────

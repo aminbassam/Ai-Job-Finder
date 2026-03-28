@@ -44,6 +44,7 @@ export interface AuthResponse {
     aiCredits: number;
     totalCredits: number;
     location?: string;
+    emailVerified: boolean;
   };
 }
 
@@ -62,4 +63,10 @@ export const authService = {
 
   resetPassword: (data: ResetPasswordRequest): Promise<{ message: string }> =>
     api.post<{ message: string }>("/auth/reset-password", data),
+
+  sendVerification: (): Promise<{ message: string }> =>
+    api.post<{ message: string }>("/auth/send-verification", {}),
+
+  verifyEmail: (code: string): Promise<{ user: AuthResponse["user"] }> =>
+    api.post<{ user: AuthResponse["user"] }>("/auth/verify-email", { code }),
 };

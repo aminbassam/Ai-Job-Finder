@@ -12,13 +12,18 @@ interface ProtectedRouteProps {
  * after a successful login.
  */
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const location = useLocation();
 
   if (!isAuthenticated) {
     return (
       <Navigate to="/auth/login" state={{ from: location.pathname }} replace />
     );
+  }
+
+  // Authenticated but email not verified — gate them to the verify page
+  if (user && !user.emailVerified) {
+    return <Navigate to="/auth/verify-email" replace />;
   }
 
   return <>{children}</>;
@@ -29,12 +34,14 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
  * redirected away instead of seeing those pages.
  */
 export function GuestRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "/";
 
   if (isAuthenticated) {
-    return <Navigate to={from} replace />;
+    // Unverified users go to verification, not the app
+    const redirectTo = user && !user.emailVerified ? "/auth/verify-email" : from;
+    return <Navigate to={redirectTo} replace />;
   }
 
   return <>{children}</>;

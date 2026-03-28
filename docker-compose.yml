@@ -14,8 +14,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Auto-apply schema on first boot
+      # Auto-apply schema + migrations on first boot (alphabetical order)
       - ./db/postgres_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./db/migrations/001_email_verification.sql:/docker-entrypoint-initdb.d/02_email_verification.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jobflow -d jobflow"]
       interval: 5s
