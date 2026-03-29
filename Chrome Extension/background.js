@@ -104,7 +104,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             description: job.description,
             remote: job.remote ?? false,
             sourceUrl: job.sourceUrl,
-            source: job.source ?? "extension",
+            source: "extension",
             externalId: job.externalId,
           }),
         });

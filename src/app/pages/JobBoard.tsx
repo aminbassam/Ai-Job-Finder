@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import {
   MapPin,
   Sparkles,
@@ -51,13 +51,27 @@ const CONNECTOR_NAMES: Record<string, string> = {
   builtinaustin: "Built In Austin",
 };
 
-function formatSource(source?: string): { label: string; cls: string } {
-  if (!source) return { label: "Unknown", cls: "bg-[#1F2937] text-[#6B7280] border-[#374151]" };
-  if (source === "manual")
+const EXTENSION_CAPTURE_SOURCES = new Set([
+  "linkedin",
+  "indeed",
+  "glassdoor",
+  "ziprecruiter",
+  "lever",
+  "greenhouse",
+  "workday",
+]);
+
+function formatSource(job: Pick<JobMatch, "source" | "profileId">): { label: string; cls: string } {
+  if (!job.source) return { label: "Unknown", cls: "bg-[#1F2937] text-[#6B7280] border-[#374151]" };
+  if (job.source === "manual")
     return { label: "Manual", cls: "bg-[#374151] text-[#9CA3AF] border-[#4B5563]" };
-  if (source === "extension")
+  if (job.source === "extension")
     return { label: "Extension", cls: "bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/25" };
-  const connectorName = CONNECTOR_NAMES[source] ?? source.charAt(0).toUpperCase() + source.slice(1);
+  if (!job.profileId && EXTENSION_CAPTURE_SOURCES.has(job.source)) {
+    const sourceName = CONNECTOR_NAMES[job.source] ?? job.source.charAt(0).toUpperCase() + job.source.slice(1);
+    return { label: `Extension · ${sourceName}`, cls: "bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/25" };
+  }
+  const connectorName = CONNECTOR_NAMES[job.source] ?? job.source.charAt(0).toUpperCase() + job.source.slice(1);
   return { label: `Agent · ${connectorName}`, cls: "bg-[#4F8CFF]/10 text-[#4F8CFF] border-[#4F8CFF]/20" };
 }
 
@@ -155,6 +169,7 @@ function displayJobId(externalId?: string) {
 }
 
 type ViewMode = "grid" | "list";
+type TabId = "all" | "strong" | "maybe" | "new" | "saved" | "applied";
 
 interface CardState {
   moreInfoExpanded: boolean;
@@ -695,14 +710,11 @@ function JobBoardItem({
                 ].filter(Boolean).join(" – ")}
               </span>
             )}
-            {job.source && (() => {
-              const { label, cls } = formatSource(job.source);
-              return (
-                <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
-                  {label}
-                </span>
-              );
-            })()}
+            {job.source && (
+              <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${formatSource(job).cls}`}>
+                {formatSource(job).label}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -1275,14 +1287,12 @@ function JobBoardTableRow({
 
         <TableCell className="align-top whitespace-normal">
           <div className="space-y-2">
-            {job.source && (() => {
-              const { label, cls } = formatSource(job.source);
-              return (
-                <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
-                  {label}
-                </span>
-              );
-            })()
+            {job.source && (
+              <span
+                className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-medium ${formatSource(job).cls}`}
+              >
+                {formatSource(job).label}
+              </span>
             )}
             {(job.salaryMin || job.salaryMax) && (
               <p className="text-[11px] text-[#9CA3AF]">
@@ -1407,8 +1417,6 @@ function JobBoardTableRow({
   );
 }
 
-type TabId = "all" | "strong" | "maybe" | "new" | "saved" | "applied";
-
 const TABS: { id: TabId; label: string }[] = [
   { id: "all", label: "All" },
   { id: "strong", label: "Strong" },
@@ -1448,9 +1456,18 @@ function jobMatchesTab(job: JobMatch, tab: TabId): boolean {
   }
 }
 
+function parseTab(value: string | null): TabId {
+  return TABS.some((tab) => tab.id === value) ? (value as TabId) : "all";
+}
+
+function parseViewMode(value: string | null): ViewMode {
+  return value === "grid" ? "grid" : "list";
+}
+
 export function JobBoard() {
-  const [tab, setTab] = useState<TabId>("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState<TabId>(() => parseTab(searchParams.get("tab")));
+  const [viewMode, setViewMode] = useState<ViewMode>(() => parseViewMode(searchParams.get("view")));
   const [jobs, setJobs] = useState<JobMatch[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -1460,15 +1477,38 @@ export function JobBoard() {
   const [viewingResume, setViewingResume] = useState<DocumentPreviewRef | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeProfileId = searchParams.get("profileId") || undefined;
+  const activeProfileName = searchParams.get("profileName") || "";
 
   const hasUnscored = jobs.some((j) => j.matchTier === "new" && !j.aiScore && !j.scoreBreakdown?.error);
+
+  const updateSearch = useCallback((next: {
+    tab?: TabId;
+    view?: ViewMode;
+    profileId?: string;
+    profileName?: string;
+  }) => {
+    const params = new URLSearchParams(searchParams);
+    if (next.tab) params.set("tab", next.tab);
+    if (next.view) params.set("view", next.view);
+    if (next.profileId) params.set("profileId", next.profileId);
+    if (next.profileName) params.set("profileName", next.profileName);
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const nextTab = parseTab(searchParams.get("tab"));
+    const nextView = parseViewMode(searchParams.get("view"));
+    setTab((current) => current === nextTab ? current : nextTab);
+    setViewMode((current) => current === nextView ? current : nextView);
+  }, [searchParams]);
 
   const fetchJobs = useCallback(async (reset = false, requestedOffset?: number) => {
     const currentOffset = reset ? 0 : (requestedOffset ?? offset);
     if (reset) setLoading(true);
     try {
       const q = tabToQuery(tab);
-      const res = await getResults({ ...q, limit: LIMIT, offset: currentOffset });
+      const res = await getResults({ ...q, profileId: activeProfileId, limit: LIMIT, offset: currentOffset });
       if (reset) {
         setJobs(res.matches);
         setOffset(LIMIT);
@@ -1483,12 +1523,12 @@ export function JobBoard() {
     } finally {
       if (reset) setLoading(false);
     }
-  }, [tab, offset]);
+  }, [tab, offset, activeProfileId]);
 
   const silentRefresh = useCallback(async () => {
     try {
       const q = tabToQuery(tab);
-      const res = await getResults({ ...q, limit: offset || LIMIT, offset: 0 });
+      const res = await getResults({ ...q, profileId: activeProfileId, limit: offset || LIMIT, offset: 0 });
       setJobs((prev) => {
         const map = new Map(res.matches.map((m) => [m.id, m]));
         return prev.map((j) => map.get(j.id) ?? j);
@@ -1497,19 +1537,19 @@ export function JobBoard() {
     } catch {
       // ignore
     }
-  }, [tab, offset]);
+  }, [tab, offset, activeProfileId]);
 
   const refreshCounts = useCallback(async () => {
     const counts: Record<string, number> = {};
     await Promise.allSettled(
       TABS.map(async ({ id }) => {
         const q = tabToQuery(id);
-        const res = await getResults({ ...q, limit: 1, offset: 0 });
+        const res = await getResults({ ...q, profileId: activeProfileId, limit: 1, offset: 0 });
         counts[id] = res.total;
       })
     );
     setTabCounts(counts);
-  }, []);
+  }, [activeProfileId]);
 
   useEffect(() => {
     refreshCounts();
@@ -1519,7 +1559,7 @@ export function JobBoard() {
     setSelectedIds(new Set());
     setOffset(0);
     void fetchJobs(true, 0);
-  }, [tab]);
+  }, [tab, activeProfileId]);
 
   useEffect(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -1696,7 +1736,10 @@ export function JobBoard() {
           <div className="flex items-center gap-1 rounded-lg border border-[#1F2937] bg-[#111827] p-1">
             <button
               type="button"
-              onClick={() => setViewMode("grid")}
+              onClick={() => {
+                setViewMode("grid");
+                updateSearch({ view: "grid" });
+              }}
               className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-[12px] font-medium transition-all ${
                 viewMode === "grid" ? "bg-[#4F8CFF] text-white" : "text-[#9CA3AF] hover:text-white"
               }`}
@@ -1706,7 +1749,10 @@ export function JobBoard() {
             </button>
             <button
               type="button"
-              onClick={() => setViewMode("list")}
+              onClick={() => {
+                setViewMode("list");
+                updateSearch({ view: "list" });
+              }}
               className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-[12px] font-medium transition-all ${
                 viewMode === "list" ? "bg-[#4F8CFF] text-white" : "text-[#9CA3AF] hover:text-white"
               }`}
@@ -1725,13 +1771,36 @@ export function JobBoard() {
         </div>
       </div>
 
+      {activeProfileId && (
+        <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#4F8CFF]/20 bg-[#4F8CFF]/10 px-4 py-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#4F8CFF]">Profile Filter</p>
+            <p className="text-[13px] text-white">
+              Showing jobs found by {activeProfileName || "this search profile"} in table view.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchParams({ tab, view: viewMode }, { replace: true });
+            }}
+            className="ml-auto rounded-lg border border-[#374151] bg-[#111827] px-3 py-1.5 text-[12px] font-medium text-[#D1D5DB] transition-all hover:border-[#4F8CFF]/30 hover:text-white"
+          >
+            Clear Filter
+          </button>
+        </div>
+      )}
+
       <div className="mb-6 border-b border-[#1F2937]">
         <div className="flex gap-0 overflow-x-auto">
           {TABS.map(({ id, label }) => (
             <button
               key={id}
               type="button"
-              onClick={() => setTab(id)}
+              onClick={() => {
+                setTab(id);
+                updateSearch({ tab: id });
+              }}
               className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-[13px] font-medium transition-all ${
                 tab === id ? "border-[#4F8CFF] text-[#4F8CFF]" : "border-transparent text-[#6B7280] hover:text-white"
               }`}

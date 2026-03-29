@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router";
 import {
   Plus, Play, Pause, Pencil, Trash2, Clock, Zap,
   Target, AlertCircle, Loader2, ChevronDown, ChevronUp, RefreshCw,
@@ -516,6 +517,7 @@ function ProfileCard({
   onToggle: () => void;
   onRunComplete: () => void;
 }) {
+  const navigate = useNavigate();
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<string>("idle");
   const [runResult, setRunResult] = useState<{ jobsFound: number; jobsNew: number; strongMatches: number } | null>(null);
@@ -600,6 +602,16 @@ function ProfileCard({
   }
 
   const isRunning = runStatus === "running";
+
+  function openMatches(tab: "all" | "strong") {
+    const params = new URLSearchParams({
+      profileId: profile.id,
+      profileName: profile.name,
+      tab,
+      view: "list",
+    });
+    navigate(`/jobs?${params.toString()}`);
+  }
 
   const scheduleLabel =
     profile.schedule === "6h" ? "Every 6 h"
@@ -708,16 +720,32 @@ function ProfileCard({
           <p className="text-[11px] text-[#6B7280]">Total matches</p>
           {isRunning
             ? <div className="h-5 w-8 rounded bg-[#1F2937] animate-pulse mt-0.5" />
-            : <p className="text-[16px] font-bold text-white">{profile.totalMatches ?? 0}</p>
+            : (
+                <button
+                  type="button"
+                  onClick={() => openMatches("all")}
+                  className="mt-0.5 text-left text-[16px] font-bold text-white transition-colors hover:text-[#4F8CFF]"
+                >
+                  {profile.totalMatches ?? 0}
+                </button>
+              )
           }
         </div>
         <div>
           <p className="text-[11px] text-[#6B7280]">Strong fits</p>
           {isRunning
             ? <div className="h-5 w-8 rounded bg-[#1F2937] animate-pulse mt-0.5" />
-            : <p className={`text-[16px] font-bold ${(profile.strongMatches ?? 0) > 0 ? "text-[#10B981]" : "text-[#6B7280]"}`}>
-                {profile.strongMatches ?? 0}
-              </p>
+            : (
+                <button
+                  type="button"
+                  onClick={() => openMatches("strong")}
+                  className={`mt-0.5 text-left text-[16px] font-bold transition-colors hover:text-[#4F8CFF] ${
+                    (profile.strongMatches ?? 0) > 0 ? "text-[#10B981]" : "text-[#6B7280]"
+                  }`}
+                >
+                  {profile.strongMatches ?? 0}
+                </button>
+              )
           }
         </div>
         {profile.lastRunAt && (
