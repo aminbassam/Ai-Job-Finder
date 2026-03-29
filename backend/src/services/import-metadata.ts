@@ -256,11 +256,14 @@ export async function fetchImportedJobDetails(sourceUrl: string): Promise<Import
     parseDate(extractMeta(html, "article:published_time")) ??
     parseDate(extractMeta(html, "og:updated_time"));
 
-  const pageText = stripTags(html).toLowerCase();
+  // Remote detection: structured data is authoritative; otherwise only check
+  // title and location — scanning the full description produces false positives
+  // (e.g. "remote team collaboration" on an on-site role).
+  const titleLocText = [rawTitle, location].filter(Boolean).join(" ").toLowerCase();
   const remote =
     getString(jobPosting?.jobLocationType)?.toUpperCase() === "TELECOMMUTE" ||
-    /\bremote\b/.test(pageText) ||
-    /\bwork from home\b/.test(pageText);
+    /\bremote\b/.test(titleLocText) ||
+    /\bwork from home\b|\bwfh\b/.test(titleLocText);
 
   return {
     sourceUrl: response.url,

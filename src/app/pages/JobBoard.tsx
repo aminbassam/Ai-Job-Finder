@@ -35,6 +35,32 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { buildJobInsights } from "../utils/job-insights";
 import { ResumeGenerationDialog } from "../components/resume/ResumeGenerationDialog";
 
+const CONNECTOR_NAMES: Record<string, string> = {
+  remotive: "Remotive",
+  arbeitnow: "Arbeitnow",
+  linkedin: "LinkedIn",
+  indeed: "Indeed",
+  glassdoor: "Glassdoor",
+  ziprecruiter: "ZipRecruiter",
+  usajobs: "USAJobs",
+  greenhouse: "Greenhouse",
+  lever: "Lever",
+  ashby: "Ashby",
+  upwork: "Upwork",
+  gmail: "Gmail",
+  builtinaustin: "Built In Austin",
+};
+
+function formatSource(source?: string): { label: string; cls: string } {
+  if (!source) return { label: "Unknown", cls: "bg-[#1F2937] text-[#6B7280] border-[#374151]" };
+  if (source === "manual")
+    return { label: "Manual", cls: "bg-[#374151] text-[#9CA3AF] border-[#4B5563]" };
+  if (source === "extension")
+    return { label: "Extension", cls: "bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/25" };
+  const connectorName = CONNECTOR_NAMES[source] ?? source.charAt(0).toUpperCase() + source.slice(1);
+  return { label: `Agent · ${connectorName}`, cls: "bg-[#4F8CFF]/10 text-[#4F8CFF] border-[#4F8CFF]/20" };
+}
+
 function scoreColor(score?: number): string {
   if (score == null) return "#6B7280";
   if (score >= 75) return "#22C55E";
@@ -669,11 +695,14 @@ function JobBoardItem({
                 ].filter(Boolean).join(" – ")}
               </span>
             )}
-            {job.source && (
-              <span className="rounded border border-[#374151] bg-[#1F2937] px-1.5 py-0.5 text-[10px] text-[#9CA3AF]">
-                {job.source}
-              </span>
-            )}
+            {job.source && (() => {
+              const { label, cls } = formatSource(job.source);
+              return (
+                <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
+                  {label}
+                </span>
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -1246,10 +1275,14 @@ function JobBoardTableRow({
 
         <TableCell className="align-top whitespace-normal">
           <div className="space-y-2">
-            {job.source && (
-              <span className="inline-flex rounded border border-[#374151] bg-[#1F2937] px-1.5 py-0.5 text-[10px] text-[#9CA3AF]">
-                {job.source}
-              </span>
+            {job.source && (() => {
+              const { label, cls } = formatSource(job.source);
+              return (
+                <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>
+                  {label}
+                </span>
+              );
+            })()
             )}
             {(job.salaryMin || job.salaryMax) && (
               <p className="text-[11px] text-[#9CA3AF]">

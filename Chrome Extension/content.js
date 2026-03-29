@@ -51,8 +51,13 @@
   }
 
   function detectRemote(location, title, description) {
-    const haystack = `${location ?? ""} ${title ?? ""} ${(description ?? "").slice(0, 500)}`.toLowerCase();
-    return /\bremote\b|\bwork from home\b|\bwfh\b|\bfully remote\b|\banywhere\b/.test(haystack);
+    // Only check title and location — descriptions often mention "remote" tools
+    // or "remote team" on in-office roles, causing false positives.
+    const titleLoc = `${location ?? ""} ${title ?? ""}`.toLowerCase();
+    if (/\bremote\b|\bwork from home\b|\bwfh\b|\bfully remote\b|\banywhere\b/.test(titleLoc)) return true;
+    // Also accept clear explicit signals in the very first line of the description
+    const firstLine = (description ?? "").split("\n")[0].toLowerCase();
+    return /\bfully remote\b|\b100%\s*remote\b|\bwork from home\b/.test(firstLine);
   }
 
   function slugify(url) {
