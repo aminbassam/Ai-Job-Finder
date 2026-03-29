@@ -771,22 +771,57 @@ export function SourcesTab() {
         </h4>
         <Card className="bg-[#111827] border-[#1F2937] p-5">
           <div className="flex items-start gap-3">
-            <div className="h-9 w-9 rounded-lg bg-[#F59E0B] flex items-center justify-center text-white font-bold text-[14px] shrink-0">E</div>
+            <div className="h-9 w-9 rounded-lg bg-[#F59E0B]/15 border border-[#F59E0B]/30 flex items-center justify-center shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#F59E0B" stroke="#F59E0B" stroke-width="1.5" stroke-linejoin="round"/>
+              </svg>
+            </div>
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-[14px] font-semibold text-white">JobFlow Extension</span>
                 <LaneBadge n={3} label="Manual capture" />
-                <Badge className="bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/20 text-[10px]">Coming soon</Badge>
+                <Badge className="bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/20 text-[10px]">Available</Badge>
               </div>
-              <p className="text-[12px] text-[#6B7280] mb-3">
+              <p className="text-[12px] text-[#6B7280] mb-4">
                 One-click save from LinkedIn, Indeed, company career pages, and any recruiter page.
                 Jobs flow into the same pipeline — normalized, scored, and ready to act on.
               </p>
-              <div className="text-[12px] text-[#9CA3AF] space-y-1">
-                <p>✓ Works on LinkedIn, Indeed, Glassdoor, company sites</p>
-                <p>✓ Captures title, company, location, salary, description</p>
-                <p>✓ Routes through the same AI scoring pipeline</p>
-                <p>✓ Generate tailored resume in one click from any job page</p>
+
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                {[
+                  "LinkedIn, Indeed, Glassdoor, company sites",
+                  "Title, company, location, salary, full description",
+                  "Same AI scoring pipeline as all other sources",
+                  "Generate tailored resume in one click",
+                ].map((feat) => (
+                  <div key={feat} className="flex items-start gap-2 text-[12px] text-[#9CA3AF]">
+                    <svg className="mt-0.5 shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    {feat}
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-4 space-y-3">
+                <p className="text-[12px] font-semibold text-white">Install instructions</p>
+                <ol className="space-y-2">
+                  {[
+                    <>Download or clone the repo — the extension files are in <code className="text-[#4F8CFF] bg-[#4F8CFF]/10 px-1 rounded">Chrome Extension/</code></>,
+                    <>Open <code className="text-[#4F8CFF] bg-[#4F8CFF]/10 px-1 rounded">chrome://extensions</code> in Chrome and enable <span className="text-white">Developer mode</span></>,
+                    <>Click <span className="text-white">Load unpacked</span> and select the <code className="text-[#4F8CFF] bg-[#4F8CFF]/10 px-1 rounded">Chrome Extension</code> folder</>,
+                    <>Click the extension icon on any job page, sign in, and hit <span className="text-white">Save to JobFlow</span></>,
+                  ].map((step, i) => (
+                    <li key={i} className="flex items-start gap-3 text-[12px] text-[#9CA3AF]">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#1F2937] border border-[#374151] flex items-center justify-center text-[10px] font-semibold text-[#6B7280]">{i + 1}</span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                {["LinkedIn", "Indeed", "Glassdoor", "ZipRecruiter", "Lever", "Greenhouse", "Workday", "Any job page"].map((site) => (
+                  <span key={site} className="px-2 py-0.5 rounded-full border border-[#374151] bg-[#1F2937] text-[#9CA3AF]">{site}</span>
+                ))}
               </div>
             </div>
           </div>
