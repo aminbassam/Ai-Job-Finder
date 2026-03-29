@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Background -->
+  <rect width="128" height="128" rx="28" fill="#0B0F14"/>
+  <!-- Border -->
+  <rect x="1" y="1" width="126" height="126" rx="27" fill="none" stroke="rgba(79,140,255,0.3)" stroke-width="2"/>
+  <!-- Lightning bolt (JobFlow logo) -->
+  <path d="M72 18L38 70h28l-10 40 44-56H72z"
+    fill="#4F8CFF"
+    stroke="#4F8CFF"
+    stroke-width="2"
+    stroke-linejoin="round"/>
+</svg>

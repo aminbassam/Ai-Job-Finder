@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>JobFlow AI — Settings</title>
+  <link rel="stylesheet" href="popup.css" />
+  <style>
+    body { width: 480px; padding: 24px; }
+    h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .section { margin-bottom: 24px; }
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin-bottom: 12px;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-connected { background: var(--green); }
+    .dot-disconnected { background: var(--text-dim); }
+    .status-text { font-size: 12px; color: var(--text-mid); flex: 1; }
+    .btn-row { display: flex; gap: 8px; }
+    .saved-msg { font-size: 12px; color: var(--green); margin-top: 8px; opacity: 0; transition: opacity 0.3s; }
+    .saved-msg.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="header" style="padding:0 0 16px; border:none; background:none; margin-bottom:8px;">
+    <div class="header-brand">
+      <div class="logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#4F8CFF" stroke="#4F8CFF" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <span class="brand-name">JobFlow AI — Settings</span>
+    </div>
+  </div>
+
+  <!-- Connection status -->
+  <div class="section">
+    <div class="section-title">Connection</div>
+    <div class="status-row" id="status-row">
+      <div class="status-dot dot-disconnected" id="status-dot"></div>
+      <span class="status-text" id="status-text">Not connected</span>
+    </div>
+  </div>
+
+  <!-- API URL -->
+  <div class="section">
+    <div class="section-title">API URL</div>
+    <div class="form-group">
+      <label for="api-url">JobFlow API endpoint</label>
+      <input id="api-url" type="url" placeholder="http://localhost:3001/api" />
+      <p style="margin-top:4px; font-size:11px; color:var(--text-dim);">
+        Use the default for local development. Set to your production API URL when deployed.
+      </p>
+    </div>
+  </div>
+
+  <!-- Account -->
+  <div class="section">
+    <div class="section-title">Account</div>
+    <div id="account-logged-in" class="hidden">
+      <div class="status-row">
+        <div class="status-dot dot-connected"></div>
+        <span class="status-text" id="account-email"></span>
+        <button class="btn btn-ghost-sm" id="btn-logout">Sign out</button>
+      </div>
+    </div>
+    <div id="account-logged-out">
+      <div class="form-group">
+        <label for="opt-email">Email</label>
+        <input id="opt-email" type="email" placeholder="you@example.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label for="opt-password">Password</label>
+        <input id="opt-password" type="password" placeholder="••••••••" />
+      </div>
+      <div id="opt-error" class="alert alert-error hidden"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-login">
+          <span id="login-label">Sign In</span>
+          <span id="login-spinner" class="spinner hidden"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="btn-row" style="margin-top:8px;">
+    <button class="btn btn-accent" id="btn-save">Save Settings</button>
+    <div class="saved-msg" id="saved-msg">Settings saved.</div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
