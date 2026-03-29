@@ -10,6 +10,7 @@ import {
   Sparkles,
   LogOut,
   Shield,
+  ScrollText,
 } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Avatar, AvatarFallback } from "../ui/avatar";
@@ -34,7 +35,12 @@ export function AppSidebar() {
 
   const allNav = [
     ...navigation,
-    ...(user?.isAdmin ? [{ name: "Admin", href: "/admin/users", icon: Shield }] : []),
+    ...(user?.isAdmin
+      ? [
+          { name: "Admin", href: "/admin/users", icon: Shield },
+          { name: "Platform Logs", href: "/admin/logs", icon: ScrollText },
+        ]
+      : []),
   ];
 
   const handleLogout = () => {

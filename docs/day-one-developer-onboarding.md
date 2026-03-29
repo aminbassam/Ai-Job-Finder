@@ -81,6 +81,14 @@ APP_URL=http://localhost:5678
 ENCRYPTION_KEY=replace-this-with-64-hex-characters
 ```
 
+Optional but required for Gmail LinkedIn alert ingestion:
+
+```env
+GOOGLE_CLIENT_ID=your-google-oauth-client-id
+GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:3001/api/gmail/callback
+```
+
 Generate a strong JWT secret with:
 
 ```bash
@@ -161,6 +169,7 @@ Useful first pages:
 - `/agent`
 - `/settings`
 - `/admin/users`
+- `/admin/logs`
 
 ## Recommended Day-One Smoke Test
 
@@ -172,9 +181,18 @@ Useful first pages:
 6. Create a search profile
 7. Trigger a manual run
 8. Confirm results or run logs appear
-9. Open `/admin/users` and verify the admin dashboard loads
+9. Open `/admin/logs` and verify the platform log stream updates
+10. Open `/admin/users` and verify the admin dashboard loads
 
 If those steps work, the core stack is healthy.
+
+Optional Gmail smoke test:
+
+1. Configure the Google OAuth env vars in `backend/.env`
+2. Open `/settings?tab=integrations`
+3. Connect Gmail
+4. Click `Sync Now`
+5. Confirm imported LinkedIn alert jobs appear in Job Board / Job Agent results
 
 ## Repo Map
 
@@ -193,6 +211,8 @@ Backend:
 - [backend/src/routes/agent.ts](/Users/aminbassam/Documents/Cursor/Job Finder/backend/src/routes/agent.ts)
 - [backend/src/routes/settings.ts](/Users/aminbassam/Documents/Cursor/Job Finder/backend/src/routes/settings.ts)
 - [backend/src/routes/admin.ts](/Users/aminbassam/Documents/Cursor/Job Finder/backend/src/routes/admin.ts)
+- [backend/src/routes/gmail.ts](/Users/aminbassam/Documents/Cursor/Job Finder/backend/src/routes/gmail.ts)
+- [backend/src/services/gmail-linkedin-ingestion.ts](/Users/aminbassam/Documents/Cursor/Job Finder/backend/src/services/gmail-linkedin-ingestion.ts)
 
 Database:
 
@@ -247,6 +267,21 @@ Fix:
 2. confirm Postgres is healthy
 3. confirm `DATABASE_URL`
 4. rerun `npm run db:seed`
+
+### Gmail connect or sync fails
+
+Cause:
+
+- Google OAuth env vars are missing or incorrect
+- redirect URI in Google Cloud does not exactly match `GOOGLE_REDIRECT_URI`
+- Gmail is connected, but no LinkedIn alert emails match the search query yet
+
+Fix:
+
+1. verify `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI`
+2. ensure the Google OAuth app allows the local callback URL
+3. open `/settings?tab=integrations` and try `Sync Now`
+4. check `/admin/logs` for sync failures or parsing warnings
 
 ### Docker database starts but app behavior is weird
 

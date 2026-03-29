@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS master_resume_profiles (
   target_roles text[] NOT NULL DEFAULT '{}'::text[],
   summary text,
   experience_years integer NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
   is_default boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -99,6 +100,9 @@ WHERE is_default;
 
 CREATE INDEX IF NOT EXISTS idx_master_resume_profiles_master_resume
 ON master_resume_profiles(master_resume_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_master_resume_profiles_active
+ON master_resume_profiles(master_resume_id, is_active, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_master_resume_imports_user_created
 ON master_resume_imports(user_id, created_at DESC);

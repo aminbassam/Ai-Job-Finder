@@ -175,6 +175,7 @@ CREATE TABLE user_preferences (
   resume_accent_color text NOT NULL DEFAULT '#2563EB',
   resume_template text NOT NULL DEFAULT 'modern',
   resume_density text NOT NULL DEFAULT 'balanced',
+  use_legacy_resume_preferences_for_ai boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW()
 );
@@ -191,6 +192,23 @@ CREATE TABLE ai_provider_connections (
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, provider)
+);
+
+CREATE TABLE gmail_accounts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL UNIQUE REFERENCES account_users(id) ON DELETE CASCADE,
+  email text NOT NULL,
+  encrypted_access_token text NOT NULL,
+  access_token_iv text NOT NULL,
+  access_token_tag text NOT NULL,
+  encrypted_refresh_token text NOT NULL,
+  refresh_token_iv text NOT NULL,
+  refresh_token_tag text NOT NULL,
+  token_expires_at timestamptz,
+  last_sync_at timestamptz,
+  last_error text,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE master_resumes (
@@ -219,6 +237,8 @@ CREATE TABLE master_resume_profiles (
   target_roles text[] NOT NULL DEFAULT '{}'::text[],
   summary text,
   experience_years integer NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
+  use_for_ai boolean NOT NULL DEFAULT true,
   is_default boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW()
@@ -272,6 +292,20 @@ CREATE TABLE master_resume_projects (
   team_size integer,
   outcome text,
   metrics text,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE master_resume_education (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id uuid NOT NULL REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+  school text NOT NULL,
+  degree text,
+  field_of_study text,
+  start_date date,
+  end_date date,
+  notes text,
   sort_order integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW()
@@ -428,6 +462,21 @@ CREATE TABLE job_score_breakdowns (
   score smallint NOT NULL,
   display_order integer NOT NULL DEFAULT 0,
   CONSTRAINT breakdown_score_between_0_and_100 CHECK (score BETWEEN 0 AND 100)
+);
+
+CREATE TABLE gmail_synced_messages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  gmail_account_id uuid NOT NULL REFERENCES gmail_accounts(id) ON DELETE CASCADE,
+  gmail_message_id text NOT NULL,
+  gmail_thread_id text,
+  subject text,
+  sender text,
+  received_at timestamptz,
+  status text NOT NULL DEFAULT 'imported',
+  imported_job_id uuid REFERENCES jobs(id) ON DELETE SET NULL,
+  parsed_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  UNIQUE (gmail_account_id, gmail_message_id)
 );
 
 CREATE TABLE documents (
@@ -621,11 +670,14 @@ CREATE INDEX idx_documents_user_kind ON documents(user_id, kind, updated_at DESC
 CREATE INDEX idx_documents_job_id ON documents(job_id);
 CREATE INDEX idx_master_resume_imports_user_created ON master_resume_imports(user_id, created_at DESC);
 CREATE INDEX idx_master_resume_profiles_master_resume ON master_resume_profiles(master_resume_id, created_at DESC);
+CREATE INDEX idx_master_resume_profiles_active ON master_resume_profiles(master_resume_id, is_active, created_at DESC);
+CREATE INDEX idx_master_resume_profiles_ai_enabled ON master_resume_profiles(master_resume_id, use_for_ai, is_active, updated_at DESC);
 CREATE UNIQUE INDEX idx_master_resume_profiles_one_default
 ON master_resume_profiles(master_resume_id)
 WHERE is_default;
 CREATE INDEX idx_master_resume_experiences_profile ON master_resume_experiences(profile_id, sort_order, created_at);
 CREATE INDEX idx_master_resume_projects_profile ON master_resume_projects(profile_id, sort_order, created_at);
+CREATE INDEX idx_master_resume_education_profile ON master_resume_education(profile_id, sort_order, created_at);
 CREATE INDEX idx_master_resume_bullets_experience ON master_resume_bullets(experience_id, sort_order, created_at);
 CREATE INDEX idx_document_versions_document_id ON document_versions(document_id, version_no DESC);
 CREATE INDEX idx_applications_user_status ON applications(user_id, status);
@@ -633,6 +685,8 @@ CREATE INDEX idx_applications_job_id ON applications(job_id);
 CREATE INDEX idx_application_status_history_application_id ON application_status_history(application_id, changed_at DESC);
 CREATE INDEX idx_ai_runs_user_created ON ai_runs(user_id, created_at DESC);
 CREATE INDEX idx_activity_events_user_created ON activity_events(user_id, created_at DESC);
+CREATE INDEX idx_gmail_accounts_user ON gmail_accounts(user_id);
+CREATE INDEX idx_gmail_synced_messages_account ON gmail_synced_messages(gmail_account_id, created_at DESC);
 CREATE UNIQUE INDEX idx_ai_provider_connections_one_default
 ON ai_provider_connections(user_id)
 WHERE is_default;
@@ -661,6 +715,10 @@ CREATE TRIGGER trg_ai_provider_connections_updated_at
 BEFORE UPDATE ON ai_provider_connections
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+CREATE TRIGGER trg_gmail_accounts_updated_at
+BEFORE UPDATE ON gmail_accounts
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 CREATE TRIGGER trg_master_resumes_updated_at
 BEFORE UPDATE ON master_resumes
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -683,6 +741,10 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER trg_master_resume_projects_updated_at
 BEFORE UPDATE ON master_resume_projects
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_master_resume_education_updated_at
+BEFORE UPDATE ON master_resume_education
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER trg_master_resume_leadership_updated_at

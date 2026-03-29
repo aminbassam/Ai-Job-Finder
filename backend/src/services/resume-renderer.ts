@@ -12,7 +12,7 @@ export type ResumeBodyFont =
   | "IBM Plex Sans"
   | "Work Sans";
 
-export type ResumeTemplate = "modern" | "classic" | "compact";
+export type ResumeTemplate = "modern" | "classic" | "compact" | "product-owner" | "wordpress-operator";
 export type ResumeDensity = "comfortable" | "balanced" | "compact";
 
 export interface ResumeFormattingSettings {
@@ -100,7 +100,7 @@ function isBodyFont(value: string): value is ResumeBodyFont {
 }
 
 function isTemplate(value: string): value is ResumeTemplate {
-  return ["modern", "classic", "compact"].includes(value);
+  return ["modern", "classic", "compact", "product-owner", "wordpress-operator"].includes(value);
 }
 
 function isDensity(value: string): value is ResumeDensity {
@@ -258,6 +258,67 @@ function densityValues(density: ResumeDensity) {
 }
 
 function templateCss(template: ResumeTemplate, accentColor: string) {
+  if (template === "product-owner") {
+    return `
+      .resume-doc {
+        border-top: 6px solid ${accentColor};
+        box-shadow: 0 34px 72px rgba(15, 23, 42, 0.16);
+      }
+      .resume-header {
+        padding-bottom: 22px;
+        border-bottom: 2px solid rgba(15, 23, 42, 0.08);
+      }
+      .resume-meta {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 11px;
+      }
+      .resume-section {
+        padding-top: 10px;
+        border-top: 1px solid rgba(15, 23, 42, 0.08);
+      }
+      .resume-section-title {
+        letter-spacing: 0.16em;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+      .resume-list {
+        padding-left: 18px;
+      }
+    `;
+  }
+  if (template === "wordpress-operator") {
+    return `
+      .resume-doc {
+        background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), #ffffff 140px);
+        border: 1px solid rgba(15, 23, 42, 0.08);
+      }
+      .resume-header {
+        gap: 6px;
+        padding-bottom: 16px;
+      }
+      .resume-title {
+        letter-spacing: -0.02em;
+      }
+      .resume-section-title {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        padding-bottom: 6px;
+        border-bottom: 2px solid rgba(15, 23, 42, 0.08);
+      }
+      .resume-section-body {
+        gap: 10px;
+      }
+      .resume-list {
+        grid-template-columns: 1fr;
+        padding-left: 18px;
+      }
+      .resume-paragraph {
+        color: #1e293b;
+      }
+    `;
+  }
   if (template === "classic") {
     return `
       .resume-doc { border-top: 3px solid ${accentColor}; }

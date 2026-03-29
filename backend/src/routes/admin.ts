@@ -150,6 +150,198 @@ router.get("/users/:id", async (req: Request, res: Response): Promise<void> => {
   });
 });
 
+// ── GET /api/admin/logs ──────────────────────────────────────────────────────
+
+router.get("/logs", async (req: Request, res: Response): Promise<void> => {
+  const limit = Math.min(200, Math.max(20, parseInt(req.query.limit as string ?? "100", 10)));
+  const category = (req.query.category as string | undefined)?.trim().toLowerCase();
+  const level = (req.query.level as string | undefined)?.trim().toLowerCase();
+
+  try {
+    const [runs, connectors, activities] = await Promise.all([
+      query<{
+        id: string;
+        status: "running" | "completed" | "failed";
+        trigger: "manual" | "schedule";
+        jobs_found: number | null;
+        jobs_new: number | null;
+        jobs_scored: number | null;
+        strong_matches: number | null;
+        error: string | null;
+        started_at: string;
+        completed_at: string | null;
+        profile_name: string | null;
+        user_id: string;
+        user_email: string;
+        user_name: string | null;
+      }>(
+        `SELECT
+           ar.id,
+           ar.status,
+           ar.trigger,
+           ar.jobs_found,
+           ar.jobs_new,
+           ar.jobs_scored,
+           ar.strong_matches,
+           ar.error,
+           ar.started_at,
+           ar.completed_at,
+           sp.name AS profile_name,
+           u.id AS user_id,
+           u.email AS user_email,
+           NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), '') AS user_name
+         FROM agent_runs ar
+         JOIN account_users u ON u.id = ar.user_id
+         LEFT JOIN search_profiles sp ON sp.id = ar.profile_id
+         ORDER BY COALESCE(ar.completed_at, ar.started_at) DESC
+         LIMIT $1`,
+        [Math.max(limit, 120)]
+      ),
+      query<{
+        id: string;
+        connector: string;
+        is_active: boolean;
+        last_sync_at: string | null;
+        last_error: string | null;
+        job_count: number | null;
+        updated_at: string;
+        user_id: string;
+        user_email: string;
+        user_name: string | null;
+      }>(
+        `SELECT
+           cc.id,
+           cc.connector,
+           cc.is_active,
+           cc.last_sync_at,
+           cc.last_error,
+           cc.job_count,
+           cc.updated_at,
+           u.id AS user_id,
+           u.email AS user_email,
+           NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), '') AS user_name
+         FROM connector_configs cc
+         JOIN account_users u ON u.id = cc.user_id
+         WHERE cc.is_active = true
+            OR cc.last_error IS NOT NULL
+            OR cc.last_sync_at IS NOT NULL
+         ORDER BY GREATEST(cc.updated_at, COALESCE(cc.last_sync_at, cc.updated_at)) DESC
+         LIMIT $1`,
+        [Math.max(limit, 120)]
+      ),
+      query<{
+        id: string;
+        type: string;
+        title: string;
+        description: string | null;
+        created_at: string;
+        user_id: string;
+        user_email: string;
+        user_name: string | null;
+      }>(
+        `SELECT
+           ae.id,
+           ae.type,
+           ae.title,
+           ae.description,
+           ae.created_at,
+           u.id AS user_id,
+           u.email AS user_email,
+           NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), '') AS user_name
+         FROM activity_events ae
+         JOIN account_users u ON u.id = ae.user_id
+         ORDER BY ae.created_at DESC
+         LIMIT $1`,
+        [Math.max(limit, 120)]
+      ),
+    ]);
+
+    const logs = [
+      ...runs.map((run) => ({
+        id: `run_${run.id}`,
+        category: "job_agent",
+        level: run.status === "failed" ? "error" : run.status === "running" ? "warning" : "info",
+        status: run.status,
+        eventAt: run.completed_at ?? run.started_at,
+        userId: run.user_id,
+        userEmail: run.user_email,
+        userName: run.user_name,
+        source: run.profile_name ?? "Unassigned profile",
+        message:
+          run.status === "failed"
+            ? run.error ?? "Job agent run failed."
+            : run.status === "running"
+            ? `Job agent run is in progress for ${run.profile_name ?? "an ad hoc profile"}.`
+            : `Completed ${run.trigger} run for ${run.profile_name ?? "an ad hoc profile"}.`,
+        details: {
+          trigger: run.trigger,
+          jobsFound: run.jobs_found ?? 0,
+          jobsNew: run.jobs_new ?? 0,
+          jobsScored: run.jobs_scored ?? 0,
+          strongMatches: run.strong_matches ?? 0,
+        },
+      })),
+      ...connectors.map((connectorRow) => ({
+        id: `connector_${connectorRow.id}`,
+        category: "connector",
+        level: connectorRow.last_error ? "error" : connectorRow.is_active ? "info" : "warning",
+        status: connectorRow.last_error ? "error" : connectorRow.is_active ? "active" : "inactive",
+        eventAt: connectorRow.last_sync_at ?? connectorRow.updated_at,
+        userId: connectorRow.user_id,
+        userEmail: connectorRow.user_email,
+        userName: connectorRow.user_name,
+        source: connectorRow.connector,
+        message: connectorRow.last_error
+          ? connectorRow.last_error
+          : `${connectorRow.connector} connector is active and ready for the job agent.`,
+        details: {
+          active: connectorRow.is_active,
+          jobCount: connectorRow.job_count ?? 0,
+          lastSyncAt: connectorRow.last_sync_at,
+        },
+      })),
+      ...activities.map((activity) => ({
+        id: `activity_${activity.id}`,
+        category: "activity",
+        level: "info",
+        status: activity.type,
+        eventAt: activity.created_at,
+        userId: activity.user_id,
+        userEmail: activity.user_email,
+        userName: activity.user_name,
+        source: activity.title,
+        message: activity.description ?? activity.title,
+        details: {
+          type: activity.type,
+        },
+      })),
+    ]
+      .filter((entry) => !category || category === "all" || entry.category === category)
+      .filter((entry) => !level || level === "all" || entry.level === level)
+      .sort((a, b) => new Date(b.eventAt).getTime() - new Date(a.eventAt).getTime());
+
+    const agentRuns24h = runs.filter((run) =>
+      new Date(run.started_at).getTime() >= Date.now() - 24 * 60 * 60 * 1000
+    );
+
+    res.json({
+      summary: {
+        total: logs.length,
+        errors: logs.filter((entry) => entry.level === "error").length,
+        warnings: logs.filter((entry) => entry.level === "warning").length,
+        info: logs.filter((entry) => entry.level === "info").length,
+        activeConnectors: connectors.filter((connectorRow) => connectorRow.is_active).length,
+        failedRuns24h: agentRuns24h.filter((run) => run.status === "failed").length,
+        completedRuns24h: agentRuns24h.filter((run) => run.status === "completed").length,
+      },
+      logs: logs.slice(0, limit),
+    });
+  } catch (err) {
+    console.error("[admin/logs]", err);
+    res.status(500).json({ message: "Failed to load platform logs." });
+  }
+});
+
 // ── PATCH /api/admin/users/:id ───────────────────────────────────────────────
 
 const editUserSchema = z.object({

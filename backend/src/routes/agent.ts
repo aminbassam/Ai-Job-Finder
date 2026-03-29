@@ -13,9 +13,10 @@ import { pool } from "../db/pool";
 import { runPipeline, PipelineProfile } from "../services/pipeline";
 import { fetchImportedJobDetails } from "../services/import-metadata";
 import { buildAiPreferenceNotes, buildAiSystemPrompt, getGlobalAiSettings } from "../services/ai-global-settings";
-import { getDefaultMasterResumeContext } from "../services/master-resume";
+import { getDefaultMasterResumeContext, getLegacyResumePreferencesContext, getMasterResumeContextForProfiles, getMasterResumeProfile } from "../services/master-resume";
 import { scoreJobWithAi } from "../services/ai-scorer";
 import { markdownToPlainText, renderResumeHtml } from "../services/resume-renderer";
+import { scoreMasterResume } from "../services/master-resume-score";
 import { decrypt } from "../utils/encryption";
 
 const router = Router();
@@ -81,6 +82,114 @@ function nextRunAt(schedule: unknown, scheduleIntervalMinutes: unknown, isActive
   }
 
   return next;
+}
+
+type ResumeAiProvider = "openai" | "anthropic";
+
+async function getResumeAiConnection(userId: string, requestedProvider?: unknown) {
+  const provider: ResumeAiProvider = requestedProvider === "anthropic" ? "anthropic" : "openai";
+  const { rows } = await pool.query<{
+    encrypted_key: string;
+    encryption_iv: string;
+    encryption_tag: string;
+    selected_model: string | null;
+  }>(
+    `SELECT encrypted_key, encryption_iv, encryption_tag, selected_model
+     FROM ai_provider_connections
+     WHERE user_id = $1 AND provider = $2 AND is_connected = true
+     LIMIT 1`,
+    [userId, provider]
+  );
+
+  if (!rows[0]?.encrypted_key) {
+    throw new Error(`No ${provider === "openai" ? "OpenAI" : "Anthropic"} API key connected.`);
+  }
+
+  return {
+    provider,
+    apiKey: decrypt({
+      encrypted: rows[0].encrypted_key,
+      iv: rows[0].encryption_iv,
+      tag: rows[0].encryption_tag,
+    }),
+    model: rows[0].selected_model ?? (provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-6"),
+  };
+}
+
+async function runResumeGeneration(params: {
+  provider: ResumeAiProvider;
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  resumePrompt: string;
+}): Promise<string> {
+  if (params.provider === "anthropic") {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": params.apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: params.model,
+        system: params.systemPrompt,
+        max_tokens: 2000,
+        temperature: 0.3,
+        messages: [
+          { role: "user", content: params.resumePrompt },
+        ],
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => "");
+      throw new Error(`Anthropic returned ${response.status}. ${errBody.slice(0, 160)}`);
+    }
+
+    const data = await response.json() as { content?: Array<{ type?: string; text?: string }> };
+    const content = data.content
+      ?.filter((item) => item.type === "text" && typeof item.text === "string")
+      .map((item) => item.text?.trim() ?? "")
+      .filter(Boolean)
+      .join("\n\n") ?? "";
+
+    if (!content) {
+      throw new Error("Anthropic returned an empty resume.");
+    }
+    return content;
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${params.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: params.model,
+      messages: [
+        { role: "system", content: params.systemPrompt },
+        { role: "user", content: params.resumePrompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 2000,
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => "");
+    throw new Error(`OpenAI returned ${response.status}. ${errBody.slice(0, 160)}`);
+  }
+
+  const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+  const content = data.choices?.[0]?.message?.content?.trim() ?? "";
+  if (!content) {
+    throw new Error("OpenAI returned an empty resume.");
+  }
+  return content;
 }
 
 /* ═══════════════════════════ Search Profiles ══════════════════════════════ */
@@ -330,6 +439,7 @@ router.post("/profiles/:id/run", async (req, res) => {
       jobTitles: row.job_titles ?? [],
       locations: row.locations ?? [],
       remoteOnly: row.remote_only,
+      experienceLevels: row.experience_levels ?? [],
       salaryMin: row.salary_min,
       salaryMax: row.salary_max,
       jobTypes: row.job_types ?? [],
@@ -737,30 +847,19 @@ router.post("/results/:id/generate-resume", async (req, res) => {
     }
     const job = matchRows[0] as Record<string, unknown>;
 
-    // 2. Get user's connected OpenAI key
-    const { rows: keyRows } = await pool.query<{
-      encrypted_key: string;
-      encryption_iv: string;
-      encryption_tag: string;
-      selected_model: string;
-    }>(
-      `SELECT encrypted_key, encryption_iv, encryption_tag, selected_model
-       FROM ai_provider_connections
-       WHERE user_id = $1 AND provider = 'openai' AND is_connected = true
-       LIMIT 1`,
-      [req.userId]
-    );
-
-    if (!keyRows[0]?.encrypted_key) {
-      return res.status(400).json({ message: "No OpenAI API key connected." });
-    }
-
-    const apiKey = decrypt({
-      encrypted: keyRows[0].encrypted_key,
-      iv: keyRows[0].encryption_iv,
-      tag: keyRows[0].encryption_tag,
-    });
-    const model = keyRows[0].selected_model ?? "gpt-4o-mini";
+    const requestedProfileIds = Array.isArray(req.body?.profileIds)
+      ? Array.from(
+          new Set(
+            req.body.profileIds
+              .map((value: unknown) => (typeof value === "string" ? value.trim() : ""))
+              .filter(Boolean)
+          )
+        ).slice(0, 2)
+      : typeof req.body?.profileId === "string" && req.body.profileId.trim()
+        ? [req.body.profileId.trim()]
+        : [];
+    const useLegacyPreferences = Boolean(req.body?.useLegacyPreferences);
+    const { provider, apiKey, model } = await getResumeAiConnection(req.userId!, req.body?.provider);
 
     // 3. Load resume_preferences + user_profiles + user_skills
     const { rows: prefRows } = await pool.query<Record<string, unknown>>(
@@ -829,7 +928,36 @@ router.post("/results/:id/generate-resume", async (req, res) => {
     if (Array.isArray(prefs.soft_skills) && (prefs.soft_skills as string[]).length > 0) {
       candidateLines.push(`Soft skills: ${(prefs.soft_skills as string[]).join(", ")}`);
     }
-    const masterResumeContext = await getDefaultMasterResumeContext(req.userId!);
+    if (requestedProfileIds.length > 2) {
+      return res.status(400).json({ message: "Select up to two resume profiles." });
+    }
+    if (requestedProfileIds.length > 0) {
+      const { rows: eligibleProfiles } = await pool.query<{ id: string }>(
+        `SELECT p.id
+         FROM master_resume_profiles p
+         JOIN master_resumes mr ON mr.id = p.master_resume_id
+         WHERE mr.user_id = $1
+           AND p.is_active = true
+           AND p.use_for_ai = true
+           AND p.id = ANY($2::uuid[])`,
+        [req.userId, requestedProfileIds]
+      );
+      if (eligibleProfiles.length !== requestedProfileIds.length) {
+        return res.status(400).json({ message: "One or more selected resume profiles are not available for AI generation." });
+      }
+    }
+
+    const selectedProfilesContext = requestedProfileIds.length > 0
+      ? await getMasterResumeContextForProfiles(req.userId!, requestedProfileIds)
+      : null;
+    if (requestedProfileIds.length > 0 && !selectedProfilesContext) {
+      return res.status(404).json({ message: "Selected resume profiles were not found." });
+    }
+    const legacyContext = useLegacyPreferences ? await getLegacyResumePreferencesContext(req.userId!) : null;
+    const explicitContext = [selectedProfilesContext, legacyContext]
+      .filter((item): item is string => Boolean(item?.trim()))
+      .join("\n\n===\n\n");
+    const masterResumeContext = explicitContext || await getDefaultMasterResumeContext(req.userId!);
     if (masterResumeContext) {
       candidateLines.push(`Structured master resume context:\n${masterResumeContext.slice(0, 5000)}`);
     }
@@ -841,6 +969,37 @@ router.post("/results/:id/generate-resume", async (req, res) => {
     const desc = typeof job.description === "string"
       ? job.description.replace(/<[^>]+>/g, " ").slice(0, 1500)
       : "";
+
+    let resumeScore = Number(job.ai_score ?? 0);
+    if (requestedProfileIds.length > 0) {
+      const selectedProfiles = await Promise.all(
+        requestedProfileIds.map((profileId) => getMasterResumeProfile(req.userId!, profileId))
+      );
+      const validProfiles = selectedProfiles.filter((profile): profile is NonNullable<typeof profile> => Boolean(profile));
+      if (validProfiles.length > 0) {
+        const profileScores = validProfiles.map((profile) => {
+          const result = scoreMasterResume({
+            name: profile.name,
+            targetRoles: profile.targetRoles,
+            summary: profile.summary,
+            experienceYears: profile.experienceYears,
+            experiences: profile.experiences,
+            skills: profile.skills,
+            projects: profile.projects,
+            leadership: profile.leadership ? {
+              teamSize: profile.leadership.teamSize ?? null,
+              scope: profile.leadership.scope ?? "",
+              stakeholders: profile.leadership.stakeholders,
+              budget: profile.leadership.budget ?? "",
+            } : null,
+            jobTitle: typeof job.title === "string" ? job.title : "",
+            jobDescription: [desc, reqList].filter(Boolean).join("\n"),
+          });
+          return Math.round((result.atsScore * 0.45) + (result.mqMatch.matchScore * 0.35) + (result.impactScore * 0.2));
+        });
+        resumeScore = Math.round(profileScores.reduce((sum, score) => sum + score, 0) / profileScores.length);
+      }
+    }
 
     const resumePrompt = `You are an expert resume writer. Generate a complete, ATS-optimized tailored resume in markdown format.
 
@@ -856,12 +1015,15 @@ Requirements:
 ${reqList}
 
 Instructions:
+- Use the selected resume profile plus the job description together to maximize ATS alignment and overall fit
 - Use the candidate profile details exactly as provided for the resume header/contact section
 - Write a tailored professional summary (3-4 sentences) for THIS specific role
 - List the most relevant skills prominently
 - Use keywords directly from the job description
 - Format experience bullets with impact/metrics
 - Make every section directly relevant to the job
+- Prioritize relevance, measurable outcomes, minimum qualification match, and recruiter readability
+- Aim for a strong approval-ready resume with the highest practical fit score without inventing facts
 - Output clean markdown with sections: Header, Professional Summary, Core Skills, Professional Experience (use candidate's actual experience from profile and structured master resume context when available), Education (placeholder if not provided), Certifications
 - Use only markdown headings, plain paragraphs, and bullet lists
 - Do not use tables, code fences, or HTML
@@ -869,43 +1031,17 @@ Instructions:
 
 Return ONLY the markdown resume, no explanation.`;
 
-    // 5. Call OpenAI
-    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: buildAiSystemPrompt(
-              "You are an expert resume writer. Return only clean markdown.",
-              globalAi
-            ),
-          },
-          { role: "user", content: resumePrompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 2000,
-      }),
-      signal: AbortSignal.timeout(60_000),
+    // 5. Call selected AI provider
+    const rawMarkdown = await runResumeGeneration({
+      provider,
+      apiKey,
+      model,
+      systemPrompt: buildAiSystemPrompt(
+        "You are an expert resume writer. Return only clean markdown.",
+        globalAi
+      ),
+      resumePrompt,
     });
-
-    if (!aiRes.ok) {
-      const errBody = await aiRes.text().catch(() => "");
-      console.error("[generate-resume] OpenAI error:", aiRes.status, errBody);
-      return res.status(502).json({ message: `OpenAI returned ${aiRes.status}.` });
-    }
-
-    const aiData = await aiRes.json() as { choices?: { message?: { content?: string } }[] };
-    const rawMarkdown = aiData.choices?.[0]?.message?.content?.trim() ?? "";
-
-    if (!rawMarkdown) {
-      return res.status(502).json({ message: "AI returned an empty resume. Please try again." });
-    }
 
     // 6. Save to documents table
     const docTitle = `Tailored Resume — ${job.title} at ${job.company ?? "Unknown"}`;
@@ -927,6 +1063,11 @@ Return ONLY the markdown resume, no explanation.`;
       company: job.company,
       aiScore: job.ai_score,
       tier: job.match_tier,
+      provider,
+      model,
+      selectedProfileIds: requestedProfileIds,
+      usedLegacyPreferences: useLegacyPreferences,
+      resumeScore,
       formatting: {
         titleFont: globalAi.resumeTitleFont,
         bodyFont: globalAi.resumeBodyFont,
@@ -965,7 +1106,7 @@ Return ONLY the markdown resume, no explanation.`;
         lastModified: new Date().toISOString(),
         resumeType: "tailored",
       },
-      message: "Resume generated and attached to this job.",
+      message: `Resume generated with ${provider === "openai" ? "OpenAI" : "Anthropic"} and attached to this job.`,
     });
   } catch (err) {
     console.error("[generate-resume]", (err as Error).message);

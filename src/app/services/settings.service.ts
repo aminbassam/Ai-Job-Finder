@@ -36,8 +36,27 @@ export interface GlobalAiSettings {
   resumeTitleFont?: "Playfair Display" | "Poppins" | "Space Grotesk" | "Merriweather" | "Libre Baskerville";
   resumeBodyFont?: "Source Sans 3" | "Inter" | "Lora" | "IBM Plex Sans" | "Work Sans";
   resumeAccentColor?: string;
-  resumeTemplate?: "modern" | "classic" | "compact";
+  resumeTemplate?: "modern" | "classic" | "compact" | "product-owner" | "wordpress-operator";
   resumeDensity?: "comfortable" | "balanced" | "compact";
+  useLegacyResumePreferencesForAi?: boolean;
+}
+
+export interface GmailIntegrationStatus {
+  connected: boolean;
+  email?: string;
+  lastSyncAt?: string | null;
+  lastError?: string | null;
+  connectorActive: boolean;
+}
+
+export interface GmailSyncResult {
+  message: string;
+  synced: number;
+  imported: number;
+  skipped: number;
+  scored: number;
+  ready: number;
+  errors: string[];
 }
 
 export const settingsService = {
@@ -63,6 +82,18 @@ export const settingsService = {
 
   setProviderModel: (provider: string, model: string): Promise<{ message: string; model: string }> =>
     api.put(`/settings/ai-providers/${provider}/model`, { model }),
+
+  getGmailStatus: (): Promise<GmailIntegrationStatus> =>
+    api.get<GmailIntegrationStatus>("/gmail/status"),
+
+  getGmailConnectUrl: (): Promise<{ authUrl: string }> =>
+    api.post<{ authUrl: string }>("/gmail/connect", {}),
+
+  syncGmail: (): Promise<GmailSyncResult> =>
+    api.post<GmailSyncResult>("/gmail/sync", {}),
+
+  disconnectGmail: (): Promise<{ message: string }> =>
+    api.delete<{ message: string }>("/gmail/disconnect"),
 
   improveResume: (data: {
     summary: string; keyAchievements: string; certifications: string;

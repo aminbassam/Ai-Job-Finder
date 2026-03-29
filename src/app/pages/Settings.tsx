@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
-import { User, Sparkles, Bell, CreditCard } from "lucide-react";
+import { useSearchParams } from "react-router";
+import { User, Sparkles, Bell, CreditCard, PlugZap } from "lucide-react";
 import { AiProvidersTab } from "./settings/AiProvidersTab";
 import { GlobalAiSettingsTab } from "./settings/GlobalAiSettingsTab";
+import { IntegrationsTab } from "./settings/IntegrationsTab";
 import { Card } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Input } from "../components/ui/input";
@@ -15,6 +17,14 @@ import { profileService, type ProfileData } from "../services/profile.service";
 
 export function Settings() {
   const { user, updateUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get("tab") ?? "profile";
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  useEffect(() => {
+    const nextTab = searchParams.get("tab") ?? "profile";
+    setActiveTab(nextTab);
+  }, [searchParams]);
 
   // ── Profile tab state ────────────────────────────────────────────────────────
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -102,7 +112,21 @@ export function Settings() {
         </p>
       </div>
 
-      <Tabs defaultValue="profile" className="space-y-6">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value);
+          const next = new URLSearchParams(searchParams);
+          next.set("tab", value);
+          if (value !== "integrations") {
+            next.delete("gmail");
+            next.delete("message");
+            next.delete("email");
+          }
+          setSearchParams(next, { replace: true });
+        }}
+        className="space-y-6"
+      >
         <TabsList className="bg-[#111827] border border-[#1F2937] p-1">
           <TabsTrigger value="profile" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
             <User className="h-4 w-4 mr-2" />
@@ -111,6 +135,10 @@ export function Settings() {
           <TabsTrigger value="ai" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
             <Sparkles className="h-4 w-4 mr-2" />
             AI Settings
+          </TabsTrigger>
+          <TabsTrigger value="integrations" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+            <PlugZap className="h-4 w-4 mr-2" />
+            Integrations
           </TabsTrigger>
           <TabsTrigger value="notifications" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
             <Bell className="h-4 w-4 mr-2" />
@@ -271,6 +299,10 @@ export function Settings() {
               <GlobalAiSettingsTab />
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="integrations">
+          <IntegrationsTab />
         </TabsContent>
 
         {/* Notifications Tab */}

@@ -21,6 +21,7 @@ import { leverConnector } from "./connectors/lever";
 import { upworkConnector } from "./connectors/upwork";
 import { atsFeedConnector } from "./connectors/ats-feed";
 import { googleConnector } from "./connectors/google";
+import { builtInAustinConnector } from "./connectors/builtinaustin";
 
 /* ─── Profile shape ─────────────────────────────────────────────────────── */
 
@@ -30,6 +31,7 @@ export interface PipelineProfile {
   jobTitles: string[];
   locations: string[];
   remoteOnly: boolean;
+  experienceLevels: string[];
   salaryMin: number | null;
   salaryMax: number | null;
   jobTypes: string[];
@@ -47,7 +49,7 @@ export interface PipelineProfile {
 
 /* ─── Scoring ───────────────────────────────────────────────────────────── */
 
-interface Breakdown {
+export interface Breakdown {
   titleMatch: number;
   keywordMatch: number;
   locationMatch: number;
@@ -55,7 +57,7 @@ interface Breakdown {
   total: number;
 }
 
-function scoreJob(job: RawJob, profile: PipelineProfile): { score: number; breakdown: Breakdown } {
+export function scoreRawJobAgainstProfile(job: RawJob, profile: PipelineProfile): { score: number; breakdown: Breakdown } {
   const zero: Breakdown = { titleMatch: 0, keywordMatch: 0, locationMatch: 0, salaryMatch: 0, total: 0 };
 
   // ── Title (40 pts) ──────────────────────────────────────────────────────
@@ -131,7 +133,7 @@ function scoreJob(job: RawJob, profile: PipelineProfile): { score: number; break
   return { score: total, breakdown: { titleMatch, keywordMatch, locationMatch, salaryMatch, total } };
 }
 
-function toTier(score: number): "strong" | "maybe" | "weak" | "reject" {
+export function toMatchTier(score: number): "strong" | "maybe" | "weak" | "reject" {
   if (score >= 75) return "strong";
   if (score >= 55) return "maybe";
   if (score >= 35) return "weak";
@@ -153,6 +155,7 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
     locations: profile.locations,
     remoteOnly: profile.remoteOnly,
     mustHaveKeywords: profile.mustHaveKeywords,
+    experienceLevels: profile.experienceLevels,
     jobTypes: profile.jobTypes,
     postedWithinDays: profile.postedWithinDays,
     searchMode: profile.searchMode,
@@ -173,10 +176,12 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
       const cfg = cfgMap[source] ?? {};
       let jobs: RawJob[] = [];
       try {
-        if (source === "greenhouse") jobs = await greenhouseConnector.search(query, cfg);
+        const runtimeConfig = { ...cfg, userId: profile.userId };
+        if (source === "greenhouse") jobs = await greenhouseConnector.search(query, runtimeConfig);
         else if (source === "lever") jobs = await leverConnector.search(query, cfg);
         else if (source === "upwork") jobs = await upworkConnector.search(query, cfg);
         else if (source === "google") jobs = await googleConnector.search(query, cfg);
+        else if (source === "builtinaustin") jobs = await builtInAustinConnector.search(query, runtimeConfig);
         else if (source === "ats-feed" || source === "ashby")
           jobs = await atsFeedConnector.search(query, cfg);
       } catch (err) {
@@ -203,8 +208,8 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
   let strongCount = 0;
 
   for (const job of filtered) {
-    const { score, breakdown } = scoreJob(job, profile);
-    const tier = toTier(score);
+    const { score, breakdown } = scoreRawJobAgainstProfile(job, profile);
+    const tier = toMatchTier(score);
     scoredCount++;
 
     try {

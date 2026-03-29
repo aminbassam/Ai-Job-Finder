@@ -22,7 +22,8 @@ router.get("/preferences", async (req: Request, res: Response): Promise<void> =>
               cover_letter_tone, cover_letter_length, cover_letter_personalization,
               no_fake_experience, no_change_titles, no_exaggerate_metrics, only_rephrase,
               ai_custom_roles, ai_default_instructions,
-              resume_title_font, resume_body_font, resume_accent_color, resume_template, resume_density
+              resume_title_font, resume_body_font, resume_accent_color, resume_template, resume_density,
+              use_legacy_resume_preferences_for_ai
        FROM user_preferences WHERE user_id = $1`,
       [req.userId]
     );
@@ -52,6 +53,7 @@ router.get("/preferences", async (req: Request, res: Response): Promise<void> =>
       resumeAccentColor: prefs.resume_accent_color,
       resumeTemplate: prefs.resume_template,
       resumeDensity: prefs.resume_density,
+      useLegacyResumePreferencesForAi: prefs.use_legacy_resume_preferences_for_ai,
     } : {});
   } catch (err) {
     console.error("[settings/prefs/get]", err);
@@ -85,8 +87,9 @@ const prefsSchema = z.object({
   resumeTitleFont:          z.enum(["Playfair Display", "Poppins", "Space Grotesk", "Merriweather", "Libre Baskerville"]).optional(),
   resumeBodyFont:           z.enum(["Source Sans 3", "Inter", "Lora", "IBM Plex Sans", "Work Sans"]).optional(),
   resumeAccentColor:        z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-  resumeTemplate:           z.enum(["modern", "classic", "compact"]).optional(),
+  resumeTemplate:           z.enum(["modern", "classic", "compact", "product-owner", "wordpress-operator"]).optional(),
   resumeDensity:            z.enum(["comfortable", "balanced", "compact"]).optional(),
+  useLegacyResumePreferencesForAi: z.boolean().optional(),
 });
 
 router.put("/preferences", validate(prefsSchema), async (req: Request, res: Response): Promise<void> => {
@@ -119,7 +122,8 @@ router.put("/preferences", validate(prefsSchema), async (req: Request, res: Resp
          resume_body_font,
          resume_accent_color,
          resume_template,
-         resume_density
+         resume_density,
+         use_legacy_resume_preferences_for_ai
        )
        VALUES (
          $1,
@@ -147,7 +151,8 @@ router.put("/preferences", validate(prefsSchema), async (req: Request, res: Resp
          COALESCE($23, 'Source Sans 3'),
          COALESCE($24, '#2563EB'),
          COALESCE($25, 'modern'),
-         COALESCE($26, 'balanced')
+         COALESCE($26, 'balanced'),
+         COALESCE($27, false)
        )
        ON CONFLICT (user_id) DO UPDATE SET
          auto_optimize_ats          = COALESCE($2, user_preferences.auto_optimize_ats),
@@ -175,6 +180,7 @@ router.put("/preferences", validate(prefsSchema), async (req: Request, res: Resp
          resume_accent_color        = COALESCE($24, user_preferences.resume_accent_color),
          resume_template            = COALESCE($25, user_preferences.resume_template),
          resume_density             = COALESCE($26, user_preferences.resume_density),
+         use_legacy_resume_preferences_for_ai = COALESCE($27, user_preferences.use_legacy_resume_preferences_for_ai),
          updated_at                 = NOW()`,
       [
         req.userId,
@@ -203,6 +209,7 @@ router.put("/preferences", validate(prefsSchema), async (req: Request, res: Resp
         d.resumeAccentColor ?? null,
         d.resumeTemplate ?? null,
         d.resumeDensity ?? null,
+        d.useLegacyResumePreferencesForAi ?? null,
       ]
     );
     res.json({ message: "Preferences updated." });

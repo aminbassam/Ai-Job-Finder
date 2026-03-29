@@ -27,6 +27,16 @@ export interface MasterResumeSkills {
   certifications: string[];
 }
 
+export interface MasterResumeEducation {
+  id?: string;
+  school: string;
+  degree?: string;
+  fieldOfStudy?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  notes?: string;
+}
+
 export interface MasterResumeProject {
   id?: string;
   name: string;
@@ -53,11 +63,14 @@ export interface MasterResumeProfile {
   targetRoles: string[];
   summary?: string | null;
   experienceYears: number;
+  isActive: boolean;
+  useForAi: boolean;
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
   experiences: MasterResumeExperience[];
   skills: MasterResumeSkills;
+  education: MasterResumeEducation[];
   projects: MasterResumeProject[];
   leadership?: MasterResumeLeadership | null;
 }
@@ -100,10 +113,10 @@ export const masterResumeService = {
   updateProfile: (id: string, data: MasterResumeProfileInput) => api.put<MasterResumeProfile>(`/master-resume/profiles/${id}`, data),
   deleteProfile: (id: string) => api.delete<{ ok: boolean }>(`/master-resume/profiles/${id}`),
   listImports: () => api.get<ResumeImportRecord[]>("/master-resume/imports"),
-  createProfileFromImport: (data: { importId: string; name?: string; isDefault?: boolean }) =>
+  createProfileFromImport: (data: { importId: string; name?: string; isActive?: boolean; useForAi?: boolean; isDefault?: boolean }) =>
     api.post<MasterResumeProfile>("/master-resume/profiles/from-import", data),
 
-  parseLinkedIn: (data: { url: string; profileName?: string; createProfile?: boolean; isDefault?: boolean }) =>
+  parseLinkedIn: (data: { url: string; profileName?: string; createProfile?: boolean; isActive?: boolean; useForAi?: boolean; isDefault?: boolean }) =>
     api.post<{
       importId: string;
       rawText: string;
@@ -111,7 +124,7 @@ export const masterResumeService = {
       profile?: MasterResumeProfile | null;
     }>("/ai/parse-linkedin", data),
 
-  parseResume: (data: { fileName: string; mimeType: string; base64: string; profileName?: string; createProfile?: boolean; isDefault?: boolean }) =>
+  parseResume: (data: { fileName: string; mimeType: string; base64: string; profileName?: string; createProfile?: boolean; isActive?: boolean; useForAi?: boolean; isDefault?: boolean }) =>
     api.post<{
       importId: string;
       rawText: string;

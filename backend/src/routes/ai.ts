@@ -9,6 +9,8 @@ import {
   normalizeImportedResumeToProfile,
   parseStructuredResumeJson,
 } from "../services/master-resume-import";
+import { extractJobSignals } from "../services/job-ai-extraction";
+import { extractJobFromEmailWithFallback } from "../services/gmail-linkedin-ingestion";
 import {
   getMasterResumeProfile,
   saveMasterResumeImport,
@@ -23,15 +25,19 @@ const parseLinkedInSchema = z.object({
   url: z.string().url(),
   profileName: z.string().max(200).optional(),
   createProfile: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+  useForAi: z.boolean().optional(),
   isDefault: z.boolean().optional(),
 });
 
 router.post("/parse-linkedin", validate(parseLinkedInSchema), async (req: Request, res: Response) => {
-  const { url, profileName, createProfile, isDefault } = req.body as z.infer<typeof parseLinkedInSchema>;
+  const { url, profileName, createProfile, isActive, useForAi, isDefault } = req.body as z.infer<typeof parseLinkedInSchema>;
 
   try {
     const rawText = await extractTextFromLinkedInUrl(url);
-    const parsed = await parseStructuredResumeJson(req.userId, rawText, "linkedin");
+    const parsed = await parseStructuredResumeJson(req.userId, rawText, "linkedin", {
+      fallbackName: profileName ?? undefined,
+    });
     const importId = await saveMasterResumeImport(req.userId, {
       sourceType: "linkedin",
       sourceUrl: url,
@@ -43,6 +49,8 @@ router.post("/parse-linkedin", validate(parseLinkedInSchema), async (req: Reques
     if (createProfile) {
       const normalized = normalizeImportedResumeToProfile(parsed, profileName ?? "LinkedIn Profile");
       normalized.sourceImportId = importId;
+      normalized.isActive = isActive !== false;
+      normalized.useForAi = useForAi !== false;
       normalized.isDefault = Boolean(isDefault);
       createdProfile = await saveMasterResumeProfile(req.userId, normalized);
     }
@@ -65,15 +73,19 @@ const parseResumeSchema = z.object({
   base64: z.string().min(1),
   profileName: z.string().max(200).optional(),
   createProfile: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+  useForAi: z.boolean().optional(),
   isDefault: z.boolean().optional(),
 });
 
 router.post("/parse-resume", validate(parseResumeSchema), async (req: Request, res: Response) => {
-  const { fileName, mimeType, base64, profileName, createProfile, isDefault } = req.body as z.infer<typeof parseResumeSchema>;
+  const { fileName, mimeType, base64, profileName, createProfile, isActive, useForAi, isDefault } = req.body as z.infer<typeof parseResumeSchema>;
 
   try {
     const rawText = await extractResumeTextFromFile(fileName, mimeType, base64);
-    const parsed = await parseStructuredResumeJson(req.userId, rawText, "upload");
+    const parsed = await parseStructuredResumeJson(req.userId, rawText, "upload", {
+      fallbackName: profileName ?? fileName.replace(/\.[^.]+$/, ""),
+    });
     const importId = await saveMasterResumeImport(req.userId, {
       sourceType: "upload",
       fileName,
@@ -85,6 +97,8 @@ router.post("/parse-resume", validate(parseResumeSchema), async (req: Request, r
     if (createProfile) {
       const normalized = normalizeImportedResumeToProfile(parsed, profileName ?? fileName.replace(/\.[^.]+$/, ""));
       normalized.sourceImportId = importId;
+      normalized.isActive = isActive !== false;
+      normalized.useForAi = useForAi !== false;
       normalized.isDefault = Boolean(isDefault);
       createdProfile = await saveMasterResumeProfile(req.userId, normalized);
     }
@@ -244,6 +258,7 @@ router.post("/score-resume", validate(scoreSchema), async (req: Request, res: Re
       experienceYears: profile.experienceYears,
       experiences: profile.experiences,
       skills: profile.skills,
+      education: profile.education,
       projects: profile.projects,
       leadership: profile.leadership ? {
         teamSize: profile.leadership.teamSize ?? null,
@@ -259,6 +274,55 @@ router.post("/score-resume", validate(scoreSchema), async (req: Request, res: Re
   } catch (err) {
     console.error("[ai/score-resume]", err);
     res.status(500).json({ message: err instanceof Error ? err.message : "Failed to score resume." });
+  }
+});
+
+const extractJobSchema = z.object({
+  description: z.string().min(20),
+});
+
+router.post("/extract-job", validate(extractJobSchema), async (req: Request, res: Response) => {
+  try {
+    const { description } = req.body as z.infer<typeof extractJobSchema>;
+    const result = await extractJobSignals(req.userId, description);
+    res.json({
+      skills: result.skills,
+      minimumQualifications: result.minimumQualifications,
+      keywords: result.keywords,
+    });
+  } catch (err) {
+    console.error("[ai/extract-job]", err);
+    res.status(500).json({ message: err instanceof Error ? err.message : "Failed to extract job signals." });
+  }
+});
+
+const extractJobFromEmailSchema = z.object({
+  html: z.string().optional().default(""),
+  text: z.string().optional().default(""),
+  snippet: z.string().optional().default(""),
+  subject: z.string().optional().default(""),
+  sender: z.string().optional().default(""),
+});
+
+router.post("/extract-job-from-email", validate(extractJobFromEmailSchema), async (req: Request, res: Response) => {
+  try {
+    const payload = req.body as z.infer<typeof extractJobFromEmailSchema>;
+    const parsed = await extractJobFromEmailWithFallback(req.userId, {
+      html: payload.html,
+      text: payload.text,
+      snippet: payload.snippet,
+      subject: payload.subject,
+      sender: payload.sender,
+    });
+    res.json({
+      title: parsed.title,
+      company: parsed.company,
+      location: parsed.location,
+      url: parsed.url,
+    });
+  } catch (err) {
+    console.error("[ai/extract-job-from-email]", err);
+    res.status(500).json({ message: err instanceof Error ? err.message : "Failed to extract job from email." });
   }
 });
 

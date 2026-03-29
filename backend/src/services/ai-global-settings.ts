@@ -28,6 +28,7 @@ export interface GlobalAiSettings {
   resumeAccentColor: string;
   resumeTemplate: ResumeTemplate;
   resumeDensity: ResumeDensity;
+  useLegacyResumePreferencesForAi: boolean;
 }
 
 const DEFAULT_AI_SETTINGS: GlobalAiSettings = {
@@ -50,6 +51,7 @@ const DEFAULT_AI_SETTINGS: GlobalAiSettings = {
   resumeAccentColor: DEFAULT_RESUME_FORMATTING.accentColor,
   resumeTemplate: DEFAULT_RESUME_FORMATTING.template,
   resumeDensity: DEFAULT_RESUME_FORMATTING.density,
+  useLegacyResumePreferencesForAi: false,
 };
 
 export async function getGlobalAiSettings(userId: string): Promise<GlobalAiSettings> {
@@ -58,7 +60,8 @@ export async function getGlobalAiSettings(userId: string): Promise<GlobalAiSetti
             cover_letter_tone, cover_letter_length, cover_letter_personalization,
             no_fake_experience, no_change_titles, no_exaggerate_metrics, only_rephrase,
             ai_custom_roles, ai_default_instructions,
-            resume_title_font, resume_body_font, resume_accent_color, resume_template, resume_density
+            resume_title_font, resume_body_font, resume_accent_color, resume_template, resume_density,
+            use_legacy_resume_preferences_for_ai
      FROM user_preferences
      WHERE user_id = $1`,
     [userId]
@@ -98,6 +101,10 @@ export async function getGlobalAiSettings(userId: string): Promise<GlobalAiSetti
     resumeAccentColor: resumeFormatting.accentColor,
     resumeTemplate: resumeFormatting.template,
     resumeDensity: resumeFormatting.density,
+    useLegacyResumePreferencesForAi:
+      row.use_legacy_resume_preferences_for_ai === undefined
+        ? DEFAULT_AI_SETTINGS.useLegacyResumePreferencesForAi
+        : Boolean(row.use_legacy_resume_preferences_for_ai),
   };
 }
 

@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  ArrowLeft,
   BookmarkCheck,
+  Edit3,
+  Eye,
+  LayoutList,
   Loader2,
   Plus,
+  Power,
   Sparkles,
+  TableProperties,
   Trash2,
   Wand2,
 } from "lucide-react";
@@ -15,9 +21,11 @@ import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
 import { Switch } from "../../components/ui/switch";
 import { TagInput } from "../../components/ui/tag-input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import {
   masterResumeService,
   MasterResumeBullet,
+  MasterResumeEducation,
   MasterResumeExperience,
   MasterResumeLeadership,
   MasterResumeProfile,
@@ -25,10 +33,13 @@ import {
   MasterResumeProject,
   ResumeScoreResult,
 } from "../../services/masterResume.service";
+import { ResumePreferencesTab } from "../settings/ResumePreferencesTab";
+import { settingsService } from "../../services/settings.service";
 
 interface ProfilesWorkspaceProps {
   refreshKey?: number;
   focusProfileId?: string | null;
+  onAddProfile?: () => void;
 }
 
 const DEFAULT_PROFILE_NAME = "New Profile";
@@ -59,6 +70,17 @@ function emptyProject(): MasterResumeProject {
   };
 }
 
+function emptyEducation(): MasterResumeEducation {
+  return {
+    school: "",
+    degree: "",
+    fieldOfStudy: "",
+    startDate: "",
+    endDate: "",
+    notes: "",
+  };
+}
+
 function emptyLeadership(): MasterResumeLeadership {
   return {
     teamSize: null,
@@ -75,6 +97,8 @@ function emptyProfileInput(name = DEFAULT_PROFILE_NAME): MasterResumeProfileInpu
     targetRoles: [],
     summary: "",
     experienceYears: 0,
+    isActive: true,
+    useForAi: true,
     isDefault: false,
     experiences: [emptyExperience()],
     skills: {
@@ -83,6 +107,7 @@ function emptyProfileInput(name = DEFAULT_PROFILE_NAME): MasterResumeProfileInpu
       soft: [],
       certifications: [],
     },
+    education: [],
     projects: [],
     leadership: emptyLeadership(),
   };
@@ -95,17 +120,111 @@ function toInput(profile: MasterResumeProfile): MasterResumeProfileInput {
     targetRoles: profile.targetRoles,
     summary: profile.summary ?? "",
     experienceYears: profile.experienceYears,
+    isActive: profile.isActive,
+    useForAi: profile.useForAi,
     isDefault: profile.isDefault,
     experiences: profile.experiences.length > 0 ? profile.experiences : [emptyExperience()],
     skills: profile.skills,
+    education: profile.education ?? [],
     projects: profile.projects,
     leadership: profile.leadership ?? emptyLeadership(),
   };
 }
 
-export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: ProfilesWorkspaceProps) {
+function metricLike(text: string): boolean {
+  return /(\d+[%xkmb]?|\$[\d,.]+|percent|revenue|growth|reduced|increased|saved|improved|launched|users|customers)/i.test(text);
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return "Unknown";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unknown";
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function computeProfileHealth(profile: MasterResumeProfile) {
+  const bullets = profile.experiences.flatMap((experience) => experience.bullets ?? []);
+  const certificateCount = profile.skills.certifications?.length ?? 0;
+  const educationCount = profile.education?.length ?? 0;
+  const impactBullets = bullets.filter((bullet) =>
+    metricLike([
+      bullet.action,
+      bullet.method,
+      bullet.result,
+      bullet.metric,
+      bullet.originalText,
+      ...(bullet.tools ?? []),
+      ...(bullet.keywords ?? []),
+    ]
+      .filter(Boolean)
+      .join(" "))
+  );
+
+  const completenessChecks = [
+    Boolean(profile.summary && profile.summary.trim().length >= 60),
+    profile.targetRoles.length > 0,
+    profile.experienceYears > 0,
+    profile.experiences.length > 0,
+    bullets.length >= 3,
+    ((profile.skills.core?.length ?? 0) + (profile.skills.tools?.length ?? 0)) >= 5,
+    educationCount > 0,
+    certificateCount > 0,
+    profile.projects.length > 0,
+    Boolean(
+      profile.leadership && (
+        profile.leadership.scope
+        || profile.leadership.teamSize
+        || (profile.leadership.stakeholders?.length ?? 0) > 0
+      )
+    ),
+  ];
+
+  const completeness = Math.round((completenessChecks.filter(Boolean).length / completenessChecks.length) * 100);
+  const impact = bullets.length > 0 ? Math.round((impactBullets.length / bullets.length) * 100) : 0;
+  const readiness = Math.round((completeness * 0.65) + (impact * 0.35));
+  const strengths: string[] = [];
+  const gaps: string[] = [];
+
+  if (profile.summary && profile.summary.trim().length >= 60) strengths.push("Strong summary context");
+  else gaps.push("Add a richer summary so AI has better positioning context.");
+
+  if (profile.targetRoles.length > 0) strengths.push("Target roles are clearly defined");
+  else gaps.push("Add target roles so AI can tailor resumes more precisely.");
+
+  if (((profile.skills.core?.length ?? 0) + (profile.skills.tools?.length ?? 0)) >= 5) strengths.push("Skill coverage is broad enough for tailoring");
+  else gaps.push("Add more core skills and tools to improve keyword coverage.");
+
+  if (educationCount > 0) strengths.push("Education credentials are captured");
+  else gaps.push("Add education so resumes include academic credibility.");
+
+  if (certificateCount > 0) strengths.push("Certificates strengthen qualification signals");
+  else gaps.push("Add certificates or training credentials if they support your target roles.");
+
+  if (impactBullets.length >= 2) strengths.push("Impact bullets already include measurable outcomes");
+  else gaps.push("Add quantified results to more experience bullets.");
+
+  if (profile.projects.length > 0 || profile.leadership?.scope || profile.leadership?.teamSize) strengths.push("Project or leadership proof is available");
+  else gaps.push("Add project or leadership details to strengthen seniority signals.");
+
+  return {
+    readiness,
+    completeness,
+    impact,
+    bulletCount: bullets.length,
+    strengths,
+    gaps,
+  };
+}
+
+export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAddProfile }: ProfilesWorkspaceProps) {
   const [profiles, setProfiles] = useState<MasterResumeProfile[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedSection, setSelectedSection] = useState<"none" | "profile" | "legacy">("none");
   const [draft, setDraft] = useState<MasterResumeProfileInput>(emptyProfileInput());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -117,23 +236,45 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
   const [scoring, setScoring] = useState(false);
   const [scoreResult, setScoreResult] = useState<ResumeScoreResult | null>(null);
   const [bulletLoadingKey, setBulletLoadingKey] = useState<string | null>(null);
+  const [statusLoadingId, setStatusLoadingId] = useState<string | null>(null);
+  const [aiLoadingId, setAiLoadingId] = useState<string | null>(null);
+  const [legacyAiLoading, setLegacyAiLoading] = useState(false);
+  const [legacyAiSource, setLegacyAiSource] = useState(false);
+  const [editorMode, setEditorMode] = useState<"view" | "edit">("edit");
+  const [profileScoreView, setProfileScoreView] = useState<"table" | "list">("table");
 
   async function loadProfiles(preferredId?: string | null) {
     setLoading(true);
     setError(null);
     try {
-      const next = await masterResumeService.listProfiles();
+      const [next, prefs] = await Promise.all([
+        masterResumeService.listProfiles(),
+        settingsService.getPreferences().catch(() => ({})),
+      ]);
       setProfiles(next);
+      setLegacyAiSource(Boolean(prefs.useLegacyResumePreferencesForAi));
 
       if (next.length === 0) {
         setSelectedId(null);
+        setSelectedSection("none");
         setDraft(emptyProfileInput());
       } else {
-        const target = next.find((profile) => profile.id === preferredId)
-          ?? next.find((profile) => profile.isDefault)
-          ?? next[0];
-        setSelectedId(target.id);
-        setDraft(toInput(target));
+        const requestedId = preferredId ?? (selectedSection === "profile" ? selectedId : null);
+        const target = requestedId ? next.find((profile) => profile.id === requestedId) ?? null : null;
+
+        if (target) {
+          setSelectedId(target.id);
+          setSelectedSection("profile");
+          setDraft(toInput(target));
+        } else if (selectedSection === "legacy") {
+          setSelectedId(null);
+          setSelectedSection("legacy");
+          setDraft(emptyProfileInput());
+        } else {
+          setSelectedId(null);
+          setSelectedSection("none");
+          setDraft(emptyProfileInput());
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load master resume profiles.");
@@ -149,6 +290,15 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedId) ?? null,
     [profiles, selectedId]
+  );
+  const profileScores = useMemo(
+    () => profiles.map((profile) => ({ profile, score: computeProfileHealth(profile) })),
+    [profiles]
+  );
+  const hasStructuredProfiles = profiles.length > 0;
+  const selectedProfileHealth = useMemo(
+    () => (selectedProfile ? computeProfileHealth(selectedProfile) : null),
+    [selectedProfile]
   );
 
   function updateDraft<K extends keyof MasterResumeProfileInput>(key: K, value: MasterResumeProfileInput[K]) {
@@ -190,6 +340,15 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
     }));
   }
 
+  function updateEducation(index: number, patch: Partial<MasterResumeEducation>) {
+    setDraft((current) => ({
+      ...current,
+      education: current.education.map((entry, educationIndex) =>
+        educationIndex === index ? { ...entry, ...patch } : entry
+      ),
+    }));
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -207,6 +366,7 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
       }
 
       setSaveMessage("Master resume profile saved.");
+      setEditorMode("edit");
       await loadProfiles(saved.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save master resume profile.");
@@ -225,6 +385,27 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
     try {
       await masterResumeService.deleteProfile(selectedProfile.id);
       await loadProfiles(null);
+      setSaveMessage("Profile deleted.");
+      setScoreResult(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete profile.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleDeleteProfile(profile: MasterResumeProfile) {
+    const confirmed = window.confirm(`Delete "${profile.name}"?`);
+    if (!confirmed) return;
+
+    setDeleting(true);
+    setError(null);
+    try {
+      await masterResumeService.deleteProfile(profile.id);
+      if (selectedId === profile.id) {
+        backToList();
+      }
+      await loadProfiles(selectedId === profile.id ? null : selectedId);
       setSaveMessage("Profile deleted.");
       setScoreResult(null);
     } catch (err) {
@@ -314,85 +495,372 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
     }
   }
 
+  async function handleToggleUseForAi(profile: MasterResumeProfile) {
+    setAiLoadingId(profile.id);
+    setError(null);
+    setSaveMessage(null);
+    try {
+      const nextUseForAi = !profile.useForAi;
+      await masterResumeService.updateProfile(profile.id, {
+        ...toInput(profile),
+        useForAi: nextUseForAi,
+      });
+      setSaveMessage(
+        nextUseForAi
+          ? `"${profile.name}" is now available for AI resume generation.`
+          : `"${profile.name}" is no longer available for AI resume generation.`
+      );
+      await loadProfiles(profile.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update AI resume availability.");
+    } finally {
+      setAiLoadingId(null);
+    }
+  }
+
+  async function handleToggleActive(profile: MasterResumeProfile) {
+    setStatusLoadingId(profile.id);
+    setError(null);
+    setSaveMessage(null);
+    try {
+      const nextIsActive = !profile.isActive;
+      await masterResumeService.updateProfile(profile.id, {
+        ...toInput(profile),
+        isActive: nextIsActive,
+        isDefault: nextIsActive ? profile.isDefault : false,
+      });
+      setSaveMessage(
+        nextIsActive
+          ? `"${profile.name}" is now active and available for AI resume generation.`
+          : `"${profile.name}" is now inactive and will not be used by AI flows.`
+      );
+      await loadProfiles(profile.id === selectedId ? profile.id : selectedId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update profile status.");
+    } finally {
+      setStatusLoadingId(null);
+    }
+  }
+
+  async function handleToggleLegacyAiSource() {
+    setLegacyAiLoading(true);
+    setError(null);
+    setSaveMessage(null);
+    try {
+      await settingsService.updatePreferences({
+        useLegacyResumePreferencesForAi: !legacyAiSource,
+      });
+      const next = !legacyAiSource;
+      setLegacyAiSource(next);
+      setSaveMessage(
+        next
+          ? "Legacy Preferences is now available for AI resume generation."
+          : "Legacy Preferences has been removed from AI resume generation."
+      );
+      await loadProfiles(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update Legacy Preferences AI availability.");
+    } finally {
+      setLegacyAiLoading(false);
+    }
+  }
+
+  function openProfile(profile: MasterResumeProfile, mode: "view" | "edit") {
+    setSelectedSection("profile");
+    setSelectedId(profile.id);
+    setDraft(toInput(profile));
+    setSaveMessage(null);
+    setEditorMode(mode);
+    setScoreResult(null);
+  }
+
+  function openLegacyPreferences() {
+    setSelectedSection("legacy");
+    setSelectedId(null);
+    setSaveMessage(null);
+    setError(null);
+    setScoreResult(null);
+    setEditorMode("view");
+  }
+
+  function backToList() {
+    setSelectedSection("none");
+    setSelectedId(null);
+    setScoreResult(null);
+    setSaveMessage(null);
+    setError(null);
+    setEditorMode("edit");
+  }
+
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[280px,1fr,360px]">
+    <div className="space-y-6">
+      {selectedSection === "none" ? (
       <Card className="border-[#1F2937] bg-[#111827] p-4">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-[16px] font-semibold text-white">Profiles</h2>
-            <p className="text-[12px] text-[#6B7280]">Maintain multiple master resume tracks.</p>
+            <h2 className="text-[16px] font-semibold text-white">Resume Profiles</h2>
+            <p className="text-[12px] text-[#6B7280]">View all profiles, manage status, and control which ones AI can use during resume generation.</p>
           </div>
-          <Button
-            size="sm"
-            onClick={() => {
-              setSelectedId(null);
-              setDraft(emptyProfileInput(`Profile ${profiles.length + 1}`));
-              setScoreResult(null);
-              setSaveMessage(null);
-            }}
-            className="bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90"
-          >
-            <Plus className="h-4 w-4" />
-            New
-          </Button>
+          {onAddProfile && (
+            <Button
+              size="sm"
+              onClick={onAddProfile}
+              className="bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90"
+            >
+              Add Resume Profile
+            </Button>
+          )}
         </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-[#4F8CFF]" />
           </div>
-        ) : profiles.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-[#1F2937] bg-[#0B0F14] p-4 text-[13px] text-[#9CA3AF]">
-            No master resume profiles yet. Create one or import from LinkedIn / resume upload.
-          </div>
         ) : (
-          <div className="space-y-2">
-            {profiles.map((profile) => (
-              <button
-                key={profile.id}
-                type="button"
-                onClick={() => {
-                  setSelectedId(profile.id);
-                  setDraft(toInput(profile));
-                  setSaveMessage(null);
-                }}
-                className={`w-full rounded-lg border p-3 text-left transition-all ${
-                  selectedId === profile.id
-                    ? "border-[#4F8CFF]/40 bg-[#4F8CFF]/10"
-                    : "border-[#1F2937] bg-[#0B0F14] hover:border-[#374151]"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-[13px] font-semibold text-white">{profile.name}</p>
-                    <p className="mt-1 text-[11px] text-[#6B7280]">{profile.targetRoles.join(", ") || "No target roles yet"}</p>
-                  </div>
-                  {profile.isDefault && (
-                    <span className="rounded-full border border-[#22C55E]/30 bg-[#22C55E]/10 px-2 py-0.5 text-[10px] font-medium text-[#22C55E]">
-                      Default
+          <div className="space-y-4">
+            {!hasStructuredProfiles && (
+              <div className="rounded-lg border border-dashed border-[#1F2937] bg-[#0B0F14] p-4">
+                <p className="text-[13px] text-[#9CA3AF]">
+                  No saved structured resume profiles yet. Add one manually or import one from LinkedIn or PDF.
+                </p>
+                {onAddProfile && (
+                  <Button
+                    size="sm"
+                    onClick={onAddProfile}
+                    className="mt-3 bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90"
+                  >
+                    Add Resume Profile
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <Table>
+              <TableHeader>
+                <TableRow className="border-[#1F2937] hover:bg-transparent">
+                  <TableHead className="h-12 text-[#9CA3AF]">Profile</TableHead>
+                  <TableHead className="h-12 text-[#9CA3AF]">Readiness</TableHead>
+                  <TableHead className="h-12 text-[#9CA3AF]">Status</TableHead>
+                  <TableHead className="h-12 text-[#9CA3AF]">AI Resume</TableHead>
+                  <TableHead className="h-12 text-[#9CA3AF]">Added</TableHead>
+                  <TableHead className="h-12 text-[#9CA3AF]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow className={`border-[#1F2937] ${selectedSection === "legacy" ? "bg-[#0B1730]" : "hover:bg-[#0B0F14]"}`}>
+                  <TableCell className="whitespace-normal align-top">
+                    <p className="font-semibold text-white">Legacy Preferences</p>
+                    <p className="mt-1 text-[12px] text-[#6B7280]">
+                      Compatibility profile for the older resume workflow and fallback preference controls.
+                    </p>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <span className="rounded-full border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-2 py-1 text-[11px] text-[#FCD34D]">
+                      Legacy
                     </span>
-                  )}
-                </div>
-              </button>
-            ))}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <span className="rounded-full border border-[#F59E0B]/30 bg-[#F59E0B]/10 px-2 py-1 text-[11px] text-[#FCD34D]">
+                      System
+                    </span>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <div className="flex items-center gap-3">
+                      <Switch checked={legacyAiSource} onCheckedChange={() => void handleToggleLegacyAiSource()} disabled={legacyAiLoading} />
+                      <span className="text-[12px] text-[#D1D5DB]">{legacyAiSource ? "Enabled" : "Disabled"}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top text-[13px] text-[#D1D5DB]">Legacy</TableCell>
+                  <TableCell className="min-w-[220px] whitespace-normal align-top">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={openLegacyPreferences}
+                        className="border-[#374151] bg-[#111827] text-white hover:bg-[#1F2937]"
+                      >
+                        <Eye className="h-4 w-4" />
+                        View
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={openLegacyPreferences}
+                        className="border-[#374151] bg-[#111827] text-white hover:bg-[#1F2937]"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                        Edit
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+
+                {profileScores.map(({ profile, score }) => (
+                  <TableRow key={profile.id} className={`border-[#1F2937] ${selectedSection === "profile" && selectedId === profile.id ? "bg-[#0B1730]" : "hover:bg-[#0B0F14]"}`}>
+                    <TableCell className="whitespace-normal align-top">
+                      <p className="font-semibold text-white">{profile.name}</p>
+                      <p className="mt-1 text-[12px] text-[#6B7280]">
+                        {profile.targetRoles.join(", ") || "No target roles yet"}
+                      </p>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="min-w-[110px]">
+                        <p className="text-[18px] font-semibold text-white">{score.readiness}%</p>
+                        <p className="text-[11px] text-[#6B7280]">
+                          {score.completeness}% complete · {score.impact}% impact
+                        </p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <span className={`rounded-full border px-2 py-1 text-[11px] ${
+                        profile.isActive
+                          ? "border-[#22C55E]/30 bg-[#22C55E]/10 text-[#86EFAC]"
+                          : "border-[#6B7280]/30 bg-[#111827] text-[#9CA3AF]"
+                      }`}>
+                        {profile.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <div className="flex items-center gap-3">
+                        <Switch
+                          checked={profile.useForAi}
+                          onCheckedChange={() => void handleToggleUseForAi(profile)}
+                          disabled={!profile.isActive || aiLoadingId === profile.id}
+                        />
+                        <span className="text-[12px] text-[#D1D5DB]">
+                          {profile.useForAi ? "Enabled" : "Disabled"}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top whitespace-normal">
+                      <div className="space-y-1 text-[11px] text-[#9CA3AF]">
+                        <p className="font-medium text-white">{formatDateTime(profile.createdAt)}</p>
+                        <p>Updated {formatDateTime(profile.updatedAt)}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="min-w-[280px] whitespace-normal align-top">
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openProfile(profile, "view")}
+                          className="border-[#374151] bg-[#111827] text-white hover:bg-[#1F2937]"
+                        >
+                          <Eye className="h-4 w-4" />
+                          View
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openProfile(profile, "edit")}
+                          className="border-[#374151] bg-[#111827] text-white hover:bg-[#1F2937]"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                          Edit
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleToggleActive(profile)}
+                          disabled={statusLoadingId === profile.id}
+                          className="border-[#374151] bg-[#111827] text-white hover:bg-[#1F2937]"
+                        >
+                          {statusLoadingId === profile.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                          {profile.isActive ? "Deactivate" : "Activate"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleDeleteProfile(profile)}
+                          disabled={deleting}
+                          className="border-[#7F1D1D] bg-[#7F1D1D]/10 text-[#FCA5A5] hover:bg-[#7F1D1D]/20"
+                        >
+                          {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         )}
       </Card>
+      ) : (
+      <Card className="border-[#1F2937] bg-[#111827] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-[16px] font-semibold text-white">
+              {selectedSection === "legacy" ? "Legacy Preferences Profile" : selectedProfile?.name ?? "Resume Profile"}
+            </h2>
+            <p className="text-[12px] text-[#6B7280]">
+              {selectedSection === "legacy"
+                ? "Compatibility preferences for the older resume workflow."
+                : editorMode === "view"
+                  ? "Read-only profile detail view."
+                  : "Edit the selected profile and save changes from this detail view."}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={backToList}
+            className="border-[#374151] bg-[#111827] text-white hover:bg-[#1F2937]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to List
+          </Button>
+        </div>
+      </Card>
+      )}
 
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr,360px]">
       <div className="space-y-6">
+        {selectedSection === "legacy" ? (
+          <div className="space-y-4">
+            <Card className="border-[#1F2937] bg-[#111827] p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-[18px] font-semibold text-white">Legacy Preferences Profile</h2>
+                  <p className="mt-2 text-[13px] leading-relaxed text-[#9CA3AF]">
+                    These compatibility preferences remain available inside the Master Resume workspace. Structured resume profiles above are preferred for top-quality AI resume generation, but these settings can still be made available as an AI resume source for older flows.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 rounded-lg border border-[#1F2937] bg-[#0B0F14] px-4 py-3">
+                  <div>
+                    <p className="text-[13px] font-medium text-white">Use in AI resume generation</p>
+                    <p className="text-[11px] text-[#6B7280]">Legacy Preferences can be selected alongside structured profiles.</p>
+                  </div>
+                  <Switch checked={legacyAiSource} onCheckedChange={() => void handleToggleLegacyAiSource()} disabled={legacyAiLoading} />
+                </div>
+              </div>
+            </Card>
+            <ResumePreferencesTab />
+          </div>
+        ) : selectedSection === "none" ? null : (
         <Card className="border-[#1F2937] bg-[#111827] p-5">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-[18px] font-semibold text-white">Structured Master Resume Builder</h2>
+              <h2 className="text-[18px] font-semibold text-white">
+                {editorMode === "view" ? "Resume Profile Details" : "Edit Resume Profile"}
+              </h2>
               <p className="text-[12px] text-[#6B7280]">
-                This is the structured career intelligence layer the platform uses for job scoping and tailoring.
+                {selectedProfile
+                  ? `You are ${editorMode === "view" ? "viewing" : "editing"} "${selectedProfile.name}".`
+                  : "Select a profile from the table above to view or edit it."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 onClick={handleGenerateSummary}
-                disabled={!selectedProfile || summaryLoading}
+                disabled={!selectedProfile || summaryLoading || editorMode === "view"}
                 className="border-[#374151] bg-[#1F2937] text-white hover:bg-[#374151]"
               >
                 {summaryLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -402,14 +870,14 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
                 <Button
                   variant="outline"
                   onClick={handleDelete}
-                  disabled={deleting}
+                  disabled={deleting || editorMode === "view"}
                   className="border-[#7F1D1D] bg-[#7F1D1D]/10 text-[#FCA5A5] hover:bg-[#7F1D1D]/20"
                 >
                   {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                   Delete
                 </Button>
               )}
-              <Button onClick={handleSave} disabled={saving} className="bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90">
+              <Button onClick={handleSave} disabled={saving || editorMode === "view"} className="bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookmarkCheck className="h-4 w-4" />}
                 Save Profile
               </Button>
@@ -422,6 +890,7 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
             </div>
           )}
 
+          <fieldset disabled={editorMode === "view"} className="space-y-0 disabled:opacity-90">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Profile Name</Label>
@@ -442,33 +911,29 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
             </div>
           </div>
 
-          <div className="mt-4 flex items-center justify-between rounded-lg border border-[#1F2937] bg-[#0B0F14] px-4 py-3">
-            <div>
-              <p className="text-[13px] font-medium text-white">Use as default profile</p>
-              <p className="text-[11px] text-[#6B7280]">Default profile feeds the rest of the platform when a job needs a master resume context.</p>
-            </div>
-            <Switch checked={Boolean(draft.isDefault)} onCheckedChange={(value) => updateDraft("isDefault", value)} />
-          </div>
-
           <div className="mt-4">
             <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Target Roles</Label>
             <TagInput tags={draft.targetRoles} onChange={(tags) => updateDraft("targetRoles", tags)} placeholder="Technical PM, SEO Manager…" />
           </div>
 
           <div className="mt-4">
-            <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Summary</Label>
+            <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Professional Summary</Label>
             <Textarea
               value={draft.summary ?? ""}
               onChange={(event) => updateDraft("summary", event.target.value)}
               rows={5}
               className="border-[#1F2937] bg-[#0B0F14] text-white"
-              placeholder="Capture the core narrative this profile should represent."
+              placeholder="Capture the senior-level positioning, domain strengths, and value proposition this profile should represent."
             />
           </div>
+          </fieldset>
         </Card>
+        )}
 
+        {selectedSection === "profile" && (
+        <fieldset disabled={editorMode === "view"} className="space-y-6 disabled:opacity-90">
         <Card className="border-[#1F2937] bg-[#111827] p-5">
-          <h3 className="mb-4 text-[16px] font-semibold text-white">Skills</h3>
+          <h3 className="mb-4 text-[16px] font-semibold text-white">Core Skills</h3>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Core Skills</Label>
@@ -482,16 +947,105 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
               <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Soft Skills</Label>
               <TagInput tags={draft.skills.soft} onChange={(tags) => updateDraft("skills", { ...draft.skills, soft: tags })} />
             </div>
-            <div>
-              <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Certifications</Label>
-              <TagInput tags={draft.skills.certifications} onChange={(tags) => updateDraft("skills", { ...draft.skills, certifications: tags })} />
-            </div>
           </div>
         </Card>
 
         <Card className="border-[#1F2937] bg-[#111827] p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-[16px] font-semibold text-white">Experience Builder</h3>
+            <div>
+              <h3 className="text-[16px] font-semibold text-white">Education & Certificates</h3>
+              <p className="mt-1 text-[12px] text-[#6B7280]">
+                Capture education history and training so AI can reflect the same structure as your preferred resumes.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => updateDraft("education", [...draft.education, emptyEducation()])}
+              className="border-[#374151] bg-[#1F2937] text-white hover:bg-[#374151]"
+            >
+              <Plus className="h-4 w-4" />
+              Add Education
+            </Button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Certificates</Label>
+              <TagInput tags={draft.skills.certifications} onChange={(tags) => updateDraft("skills", { ...draft.skills, certifications: tags })} />
+            </div>
+
+            {draft.education.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[#1F2937] bg-[#0B0F14] p-4 text-[13px] text-[#6B7280]">
+                Add education entries to match the summary, education, and certification flow from your preferred resume format.
+              </div>
+            ) : (
+              draft.education.map((education, index) => (
+                <div key={`education-${index}`} className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h4 className="text-[14px] font-semibold text-white">Education {index + 1}</h4>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => updateDraft("education", draft.education.filter((_, educationIndex) => educationIndex !== index))}
+                      className="text-[#9CA3AF] hover:text-white"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <Input
+                      value={education.school}
+                      onChange={(event) => updateEducation(index, { school: event.target.value })}
+                      className="border-[#1F2937] bg-[#111827] text-white"
+                      placeholder="School or university"
+                    />
+                    <Input
+                      value={education.degree ?? ""}
+                      onChange={(event) => updateEducation(index, { degree: event.target.value })}
+                      className="border-[#1F2937] bg-[#111827] text-white"
+                      placeholder="Degree or certification"
+                    />
+                    <Input
+                      value={education.fieldOfStudy ?? ""}
+                      onChange={(event) => updateEducation(index, { fieldOfStudy: event.target.value })}
+                      className="border-[#1F2937] bg-[#111827] text-white"
+                      placeholder="Field of study"
+                    />
+                    <Input
+                      value={education.notes ?? ""}
+                      onChange={(event) => updateEducation(index, { notes: event.target.value })}
+                      className="border-[#1F2937] bg-[#111827] text-white"
+                      placeholder="Notes, honors, or training details"
+                    />
+                    <div>
+                      <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Start Date</Label>
+                      <Input
+                        type="date"
+                        value={education.startDate ?? ""}
+                        onChange={(event) => updateEducation(index, { startDate: event.target.value })}
+                        className="border-[#1F2937] bg-[#111827] text-white"
+                      />
+                    </div>
+                    <div>
+                      <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">End Date</Label>
+                      <Input
+                        type="date"
+                        value={education.endDate ?? ""}
+                        onChange={(event) => updateEducation(index, { endDate: event.target.value })}
+                        className="border-[#1F2937] bg-[#111827] text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        <Card className="border-[#1F2937] bg-[#111827] p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-[16px] font-semibold text-white">Professional Experience</h3>
             <Button
               variant="outline"
               onClick={() => updateDraft("experiences", [...draft.experiences, emptyExperience()])}
@@ -615,7 +1169,7 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
 
         <Card className="border-[#1F2937] bg-[#111827] p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-[16px] font-semibold text-white">Projects & Leadership</h3>
+            <h3 className="text-[16px] font-semibold text-white">Project Highlights & Leadership</h3>
             <Button
               variant="outline"
               onClick={() => updateDraft("projects", [...draft.projects, emptyProject()])}
@@ -669,9 +1223,228 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
             </div>
           </div>
         </Card>
+        </fieldset>
+        )}
       </div>
 
       <div className="space-y-6">
+        {selectedSection === "none" ? (
+        <Card className="border-[#1F2937] bg-[#111827] p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="mb-2 text-[16px] font-semibold text-white">Profile Scores</h3>
+              <p className="text-[12px] text-[#6B7280]">
+                Each profile gets a readiness score after it is added, based on completeness and measurable impact.
+              </p>
+            </div>
+            <div className="flex items-center rounded-lg border border-[#1F2937] bg-[#0B0F14] p-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setProfileScoreView("table")}
+                className={`h-8 px-3 text-[12px] ${
+                  profileScoreView === "table"
+                    ? "bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90"
+                    : "text-[#9CA3AF] hover:bg-[#111827] hover:text-white"
+                }`}
+              >
+                <TableProperties className="h-4 w-4" />
+                Table
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setProfileScoreView("list")}
+                className={`h-8 px-3 text-[12px] ${
+                  profileScoreView === "list"
+                    ? "bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90"
+                    : "text-[#9CA3AF] hover:bg-[#111827] hover:text-white"
+                }`}
+              >
+                <LayoutList className="h-4 w-4" />
+                List
+              </Button>
+            </div>
+          </div>
+          {profileScores.length > 0 ? (
+            profileScoreView === "table" ? (
+              <div className="overflow-x-auto rounded-xl border border-[#1F2937] bg-[#0B0F14]">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-[#1F2937] hover:bg-transparent">
+                      <TableHead className="h-11 min-w-[180px] text-[#9CA3AF]">Profile</TableHead>
+                      <TableHead className="h-11 text-[#9CA3AF]">Readiness</TableHead>
+                      <TableHead className="h-11 text-[#9CA3AF]">Complete</TableHead>
+                      <TableHead className="h-11 text-[#9CA3AF]">Impact</TableHead>
+                      <TableHead className="h-11 text-[#9CA3AF]">Bullets</TableHead>
+                      <TableHead className="h-11 text-[#9CA3AF]">Status</TableHead>
+                      <TableHead className="h-11 text-[#9CA3AF]">AI</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {profileScores.map(({ profile, score }) => (
+                      <TableRow key={profile.id} className="border-[#1F2937] hover:bg-[#111827]">
+                        <TableCell className="align-top">
+                          <div className="space-y-1">
+                            <p className="text-[13px] font-semibold text-white">{profile.name}</p>
+                            <p className="text-[11px] text-[#6B7280]">
+                              {profile.targetRoles.join(", ") || "No target roles yet"}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <span className="rounded-full border border-[#4F8CFF]/30 bg-[#4F8CFF]/10 px-2.5 py-1 text-[11px] font-semibold text-[#93C5FD]">
+                            {score.readiness}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="align-top text-[12px] font-medium text-white">{score.completeness}%</TableCell>
+                        <TableCell className="align-top text-[12px] font-medium text-white">{score.impact}%</TableCell>
+                        <TableCell className="align-top text-[12px] font-medium text-white">{score.bulletCount}</TableCell>
+                        <TableCell className="align-top">
+                          <span className={`rounded-full border px-2 py-1 text-[11px] ${
+                            profile.isActive
+                              ? "border-[#22C55E]/30 bg-[#22C55E]/10 text-[#86EFAC]"
+                              : "border-[#6B7280]/30 bg-[#111827] text-[#9CA3AF]"
+                          }`}>
+                            {profile.isActive ? "Active" : "Inactive"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <span className={`rounded-full border px-2 py-1 text-[11px] ${
+                            profile.useForAi
+                              ? "border-[#4F8CFF]/30 bg-[#4F8CFF]/10 text-[#93C5FD]"
+                              : "border-[#6B7280]/30 bg-[#111827] text-[#9CA3AF]"
+                          }`}>
+                            {profile.useForAi ? "Enabled" : "Disabled"}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {profileScores.map(({ profile, score }) => (
+                  <div
+                    key={profile.id}
+                    className="rounded-lg border border-[#1F2937] bg-[#0B0F14] px-3 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-white">{profile.name}</p>
+                        <p className="mt-1 text-[12px] text-[#6B7280]">
+                          {profile.targetRoles.join(", ") || "No target roles yet"}
+                        </p>
+                      </div>
+                      <div className="rounded-full border border-[#4F8CFF]/30 bg-[#4F8CFF]/10 px-2.5 py-1 text-[12px] font-semibold text-[#93C5FD]">
+                        {score.readiness}%
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#9CA3AF]">
+                      <div className="rounded-md border border-[#1F2937] bg-[#111827] px-2 py-2">
+                        <p>Complete</p>
+                        <p className="mt-1 text-[13px] font-semibold text-white">{score.completeness}%</p>
+                      </div>
+                      <div className="rounded-md border border-[#1F2937] bg-[#111827] px-2 py-2">
+                        <p>Impact</p>
+                        <p className="mt-1 text-[13px] font-semibold text-white">{score.impact}%</p>
+                      </div>
+                      <div className="rounded-md border border-[#1F2937] bg-[#111827] px-2 py-2">
+                        <p>Bullets</p>
+                        <p className="mt-1 text-[13px] font-semibold text-white">{score.bulletCount}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className={`rounded-full border px-2 py-1 text-[11px] ${
+                        profile.isActive
+                          ? "border-[#22C55E]/30 bg-[#22C55E]/10 text-[#86EFAC]"
+                          : "border-[#6B7280]/30 bg-[#111827] text-[#9CA3AF]"
+                      }`}>
+                        {profile.isActive ? "Active" : "Inactive"}
+                      </span>
+                      <span className={`rounded-full border px-2 py-1 text-[11px] ${
+                        profile.useForAi
+                          ? "border-[#4F8CFF]/30 bg-[#4F8CFF]/10 text-[#93C5FD]"
+                          : "border-[#6B7280]/30 bg-[#111827] text-[#9CA3AF]"
+                      }`}>
+                        AI {profile.useForAi ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {score.strengths.slice(0, 1).map((item) => (
+                        <div key={`${profile.id}-strength-${item}`} className="rounded-md border border-[#14532D]/30 bg-[#14532D]/10 px-2 py-2 text-[11px] text-[#86EFAC]">
+                          <span className="font-medium text-[#BBF7D0]">Strong:</span> {item}
+                        </div>
+                      ))}
+                      {score.gaps.slice(0, 1).map((item) => (
+                        <div key={`${profile.id}-gap-${item}`} className="rounded-md border border-[#7C2D12]/30 bg-[#7C2D12]/10 px-2 py-2 text-[11px] text-[#FDBA74]">
+                          <span className="font-medium text-[#FED7AA]">Improve:</span> {item}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : (
+            <div className="rounded-lg border border-dashed border-[#1F2937] bg-[#0B0F14] px-3 py-4 text-[12px] text-[#6B7280]">
+              Add a resume profile to start seeing profile readiness scores here.
+            </div>
+          )}
+        </Card>
+        ) : selectedSection === "profile" && selectedProfile && selectedProfileHealth ? (
+        <Card className="border-[#1F2937] bg-[#111827] p-5">
+          <h3 className="mb-2 text-[16px] font-semibold text-white">Profile Score</h3>
+          <p className="mb-4 text-[12px] text-[#6B7280]">
+            Current readiness snapshot for this profile.
+          </p>
+          <div className="rounded-lg border border-[#4F8CFF]/30 bg-[#4F8CFF]/10 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-medium text-white">{selectedProfile.name}</p>
+                <p className="mt-1 text-[12px] text-[#BFDBFE]">
+                  {selectedProfile.targetRoles.join(", ") || "No target roles yet"}
+                </p>
+              </div>
+              <div className="rounded-full border border-[#4F8CFF]/30 bg-[#0B1730] px-3 py-1.5 text-[14px] font-semibold text-[#93C5FD]">
+                {selectedProfileHealth.readiness}%
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#9CA3AF]">
+              <div className="rounded-md border border-[#1F2937] bg-[#111827] px-2 py-2">
+                <p>Complete</p>
+                <p className="mt-1 text-[13px] font-semibold text-white">{selectedProfileHealth.completeness}%</p>
+              </div>
+              <div className="rounded-md border border-[#1F2937] bg-[#111827] px-2 py-2">
+                <p>Impact</p>
+                <p className="mt-1 text-[13px] font-semibold text-white">{selectedProfileHealth.impact}%</p>
+              </div>
+              <div className="rounded-md border border-[#1F2937] bg-[#111827] px-2 py-2">
+                <p>Bullets</p>
+                <p className="mt-1 text-[13px] font-semibold text-white">{selectedProfileHealth.bulletCount}</p>
+              </div>
+            </div>
+            <div className="mt-3 space-y-2">
+              {selectedProfileHealth.strengths.slice(0, 2).map((item) => (
+                <div key={`selected-strength-${item}`} className="rounded-md border border-[#14532D]/30 bg-[#14532D]/10 px-3 py-2 text-[12px] text-[#86EFAC]">
+                  <span className="font-medium text-[#BBF7D0]">Strong:</span> {item}
+                </div>
+              ))}
+              {selectedProfileHealth.gaps.slice(0, 2).map((item) => (
+                <div key={`selected-gap-${item}`} className="rounded-md border border-[#7C2D12]/30 bg-[#7C2D12]/10 px-3 py-2 text-[12px] text-[#FDBA74]">
+                  <span className="font-medium text-[#FED7AA]">Improve:</span> {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+        ) : null}
+
+        {selectedSection === "profile" ? (
+        <>
         <Card className="border-[#1F2937] bg-[#111827] p-5">
           <h3 className="mb-2 text-[16px] font-semibold text-white">Resume Score Panel</h3>
           <p className="mb-4 text-[12px] text-[#6B7280]">
@@ -753,6 +1526,21 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null }: Pro
             </div>
           </div>
         </Card>
+        </>
+        ) : (
+        <Card className="border-[#1F2937] bg-[#111827] p-5">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 text-[#F59E0B]" />
+            <div>
+              <h4 className="text-[14px] font-semibold text-white">Legacy compatibility mode</h4>
+              <p className="mt-1 text-[12px] leading-relaxed text-[#9CA3AF]">
+                Legacy Preferences are kept here for compatibility, but the active structured profile table above is the recommended source for AI resume generation, scoring, and tailored resume quality.
+              </p>
+            </div>
+          </div>
+        </Card>
+        )}
+      </div>
       </div>
     </div>
   );

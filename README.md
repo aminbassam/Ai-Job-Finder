@@ -6,6 +6,7 @@ Developer onboarding:
 
 - [docs/day-one-developer-onboarding.md](/Users/aminbassam/Documents/Cursor/Job Finder/docs/day-one-developer-onboarding.md)
 - [docs/master-resume-system.md](/Users/aminbassam/Documents/Cursor/Job Finder/docs/master-resume-system.md)
+- [docs/gmail-linkedin-ingestion.md](/Users/aminbassam/Documents/Cursor/Job Finder/docs/gmail-linkedin-ingestion.md)
 
 ---
 
@@ -18,15 +19,17 @@ Developer onboarding:
     services/                  ← api.ts, auth.service.ts, profile.service.ts,
     |                             settings.service.ts, agent.service.ts,
     |                             masterResume.service.ts
-    pages/                     ← Dashboard, JobAgent, JobBoard, Resume, ResumeVault,
+    pages/                     ← Dashboard, JobAgent, JobBoard, Resume,
     |                             Applications, Analytics, Settings
     pages/master-resume/       ← ProfilesWorkspace, ImportWorkspace
     pages/agent/               ← ProfilesTab, SourcesTab, ResultsTab, ImportTab, RunsTab
-    pages/settings/            ← ResumePreferencesTab, AiProvidersTab, GlobalAiSettingsTab
-    pages/admin/               ← AdminUsers dashboard
+    pages/settings/            ← ResumePreferencesTab, AiProvidersTab, GlobalAiSettingsTab,
+    |                             IntegrationsTab
+    pages/admin/               ← AdminUsers dashboard, PlatformLogs
     pages/auth/                ← Login, Signup, ForgotPassword, VerifyEmail (OTP)
     components/ui/             ← shadcn/ui components + TagInput, LocationInput
     components/documents/      ← document preview modal
+    components/resume/         ← ResumeGenerationDialog
     components/auth/           ← ProtectedRoute, GuestRoute
     components/layouts/        ← RootLayout, AppSidebar
   index.html
@@ -46,6 +49,7 @@ Developer onboarding:
     routes/agent.ts            ← GET/POST /api/agent/* (profiles, results, connectors, import)
     routes/master-resume.ts    ← GET/POST/PUT/DELETE /api/master-resume/*
     routes/ai.ts               ← POST /api/ai/* (resume parse, bullets, summary, score)
+    routes/gmail.ts            ← Gmail OAuth, sync, disconnect
     routes/applications.ts     ← GET/POST/PUT /api/applications
     routes/activity.ts         ← GET /api/activity
     routes/analytics.ts        ← GET /api/analytics/*
@@ -53,15 +57,18 @@ Developer onboarding:
     routes/documents.ts        ← GET /api/documents/*
     routes/admin.ts            ← GET/PATCH/DELETE /api/admin/*
     services/pipeline.ts       ← Match pipeline: normalize → score → tier → persist
-    services/scheduler.ts      ← node-cron scheduler (polls every 30 min)
+    services/scheduler.ts      ← node-cron scheduler (agent every 30 min, Gmail every 15 min)
+    services/gmail-linkedin-ingestion.ts ← Gmail OAuth + LinkedIn email parsing + import
     services/master-resume.ts  ← structured master resume persistence + aggregate loading
     services/master-resume-import.ts ← LinkedIn/PDF/DOCX import parsing + normalization
     services/master-resume-score.ts  ← ATS / impact / completeness / MQ scoring
     services/ai-client.ts      ← shared OpenAI helper for JSON/chat completions
+    services/job-ai-extraction.ts ← job/email AI extraction fallback
     services/resume-renderer.ts← rich resume HTML rendering
     services/pdf.ts            ← PDF generation for downloads
     services/connectors/
       base.ts                  ← Connector interface + shared title-match helper
+      builtinaustin.ts         ← Built In Austin crawler (Lane 1)
       greenhouse.ts            ← Greenhouse public board API (Lane 1)
       lever.ts                 ← Lever public postings API (Lane 1)
       ats-feed.ts              ← Ashby public board API (Lane 1)
@@ -81,6 +88,7 @@ Developer onboarding:
     009_global_ai_settings.sql ← shared AI settings / custom prompt controls
     010_resume_rich_formatting.sql ← rich resume HTML + formatting settings
     011_multi_profile_master_resume.sql ← structured multi-profile master resume system
+    016_gmail_linkedin_ingestion.sql ← Gmail OAuth + synced LinkedIn email jobs
 
 /docker-compose.yml            ← PostgreSQL 16 container
 ```
@@ -134,7 +142,15 @@ API available at `http://localhost:3001`
 Health check: `curl http://localhost:3001/health`
 
 > All migrations run automatically on every startup — no manual step needed.
-> The job agent scheduler starts automatically with the server.
+> The scheduler starts automatically with the server for both Job Agent polling and Gmail LinkedIn email ingestion.
+
+If you want Gmail LinkedIn alert ingestion locally, also configure:
+
+```env
+GOOGLE_CLIENT_ID=your-google-oauth-client-id
+GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:3001/api/gmail/callback
+```
 
 ### 3. Frontend setup
 
@@ -218,12 +234,14 @@ Fetch from connectors → Filter excluded companies → Score (0-100)
 
 | Lane | Connector | Auth | Notes |
 |------|-----------|------|-------|
+| **Lane 1** — Autonomous ATS | Google | None | Best-effort public job discovery + metadata enrichment |
+| **Lane 1** — Autonomous ATS | Built In Austin | None | Playwright crawler with pagination + detail enrichment |
 | **Lane 1** — Autonomous ATS | Greenhouse | None | Public board API — provide company slugs |
 | **Lane 1** — Autonomous ATS | Lever | None | Public postings API — provide company slugs |
 | **Lane 1** — Autonomous ATS | Ashby | None | Public board API — provide company + slug pairs |
 | **Lane 2** — Official API | Upwork | OAuth2 token | GraphQL search — contract/freelance work |
 | **Lane 3** — Browser Extension | LinkedIn, Indeed, any page | Extension | One-click save (coming soon) |
-| **Lane 4** — Email Ingestion | LinkedIn alerts, Indeed, ZipRecruiter | Forward email | Auto-parse job alert emails (coming soon) |
+| **Lane 4** — Email Ingestion | LinkedIn alerts via Gmail | Gmail OAuth | Reads LinkedIn alert emails, imports jobs, and scores matches automatically |
 
 #### Results Inbox
 - Filter by tier (Strong / Maybe / Weak) and status (New / Saved / Applied)
@@ -258,6 +276,22 @@ It includes:
 
 Important behavior:
 - the Master Resume is a structured data layer, not just a document
+
+### Settings → Integrations
+
+- Connect Gmail with Google OAuth (`gmail.readonly`)
+- Sync LinkedIn job alert emails manually or automatically every 15 minutes
+- Imported email jobs are normalized into the canonical jobs layer and also surfaced in the Job Board through the Job Agent match flow
+- Disconnect Gmail at any time
+
+### Admin → Platform Logs (`/admin/logs`)
+
+- Unified platform visibility for:
+  - Job Agent runs
+  - connector health
+  - recent activity events
+- Quick health summary for failures, warnings, active connectors, and 24h run stats
+- Table view for debugging whether the autonomous pipeline is actually working
 - the default Master Resume profile feeds AI job scoring and tailored resume generation elsewhere in the platform
 - legacy resume preferences still exist for compatibility, but structured profiles are now the main source of truth
 

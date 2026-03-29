@@ -20,6 +20,7 @@ import documentsRouter   from "./routes/documents";
 import adminRouter       from "./routes/admin";
 import agentRouter       from "./routes/agent";
 import aiRouter          from "./routes/ai";
+import gmailRouter       from "./routes/gmail";
 import masterResumeRouter from "./routes/master-resume";
 import { startScheduler } from "./services/scheduler";
 
@@ -63,6 +64,7 @@ app.use("/api/documents",    documentsRouter);
 app.use("/api/admin",        adminRouter);
 app.use("/api/agent",        agentRouter);
 app.use("/api/ai",           aiRouter);
+app.use("/api/gmail",        gmailRouter);
 app.use("/api/master-resume", masterResumeRouter);
 
 // ── Health check ─────────────────────────────────────────────────────────────
@@ -148,6 +150,11 @@ async function applyMigrations() {
     { name: "009_global_ai_settings",      file: join(ROOT, "db/migrations/009_global_ai_settings.sql") },
     { name: "010_resume_rich_formatting",  file: join(ROOT, "db/migrations/010_resume_rich_formatting.sql") },
     { name: "011_multi_profile_master_resume", file: join(ROOT, "db/migrations/011_multi_profile_master_resume.sql") },
+    { name: "012_master_resume_profile_status", file: join(ROOT, "db/migrations/012_master_resume_profile_status.sql") },
+    { name: "013_legacy_resume_ai_source", file: join(ROOT, "db/migrations/013_legacy_resume_ai_source.sql") },
+    { name: "014_master_resume_use_for_ai", file: join(ROOT, "db/migrations/014_master_resume_use_for_ai.sql") },
+    { name: "015_master_resume_education", file: join(ROOT, "db/migrations/015_master_resume_education.sql") },
+    { name: "016_gmail_linkedin_ingestion", file: join(ROOT, "db/migrations/016_gmail_linkedin_ingestion.sql") },
   ];
   const client = await pool.connect();
   try {
@@ -225,8 +232,21 @@ async function ensureCriticalColumns() {
     `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_accent_color text NOT NULL DEFAULT '#2563EB'`,
     `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_template text NOT NULL DEFAULT 'modern'`,
     `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_density text NOT NULL DEFAULT 'balanced'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS use_legacy_resume_preferences_for_ai boolean NOT NULL DEFAULT false`,
     `ALTER TABLE documents ADD COLUMN IF NOT EXISTS content_html text`,
     `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS content_html text`,
+    `ALTER TABLE master_resume_profiles ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE master_resume_profiles ADD COLUMN IF NOT EXISTS use_for_ai boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS email text`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS encrypted_access_token text`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS access_token_iv text`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS access_token_tag text`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS encrypted_refresh_token text`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS refresh_token_iv text`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS refresh_token_tag text`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS token_expires_at timestamptz`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS last_sync_at timestamptz`,
+    `ALTER TABLE gmail_accounts ADD COLUMN IF NOT EXISTS last_error text`,
   ];
   const client = await pool.connect();
   try {
@@ -239,6 +259,274 @@ async function ensureCriticalColumns() {
       });
     }
     console.log("[db] Critical columns verified.");
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Creates the master resume tables if the migration path was skipped or the
+ * local database was initialized from an older schema snapshot.
+ */
+async function ensureMasterResumeTables() {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS master_resumes (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL UNIQUE REFERENCES account_users(id) ON DELETE CASCADE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS master_resume_imports (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL REFERENCES account_users(id) ON DELETE CASCADE,
+      source_type text NOT NULL CHECK (source_type IN ('linkedin', 'upload')),
+      source_url text,
+      file_name text,
+      raw_text text NOT NULL,
+      parsed_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS master_resume_profiles (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      master_resume_id uuid NOT NULL REFERENCES master_resumes(id) ON DELETE CASCADE,
+      source_import_id uuid REFERENCES master_resume_imports(id) ON DELETE SET NULL,
+      name text NOT NULL,
+      target_roles text[] NOT NULL DEFAULT '{}'::text[],
+      summary text,
+      experience_years integer NOT NULL DEFAULT 0,
+      is_active boolean NOT NULL DEFAULT true,
+      use_for_ai boolean NOT NULL DEFAULT true,
+      is_default boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS master_resume_experiences (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      profile_id uuid NOT NULL REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+      title text NOT NULL,
+      company text NOT NULL,
+      start_date date,
+      end_date date,
+      sort_order integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS master_resume_bullets (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      experience_id uuid NOT NULL REFERENCES master_resume_experiences(id) ON DELETE CASCADE,
+      action text,
+      method text,
+      result text,
+      metric text,
+      tools text[] NOT NULL DEFAULT '{}'::text[],
+      keywords text[] NOT NULL DEFAULT '{}'::text[],
+      original_text text,
+      sort_order integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS master_resume_skills (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      profile_id uuid NOT NULL UNIQUE REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+      core text[] NOT NULL DEFAULT '{}'::text[],
+      tools text[] NOT NULL DEFAULT '{}'::text[],
+      soft text[] NOT NULL DEFAULT '{}'::text[],
+      certifications text[] NOT NULL DEFAULT '{}'::text[],
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS master_resume_projects (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      profile_id uuid NOT NULL REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+      name text NOT NULL,
+      role text,
+      description text,
+      tools text[] NOT NULL DEFAULT '{}'::text[],
+      team_size integer,
+      outcome text,
+      metrics text,
+      sort_order integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS master_resume_education (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      profile_id uuid NOT NULL REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+      school text NOT NULL,
+      degree text,
+      field_of_study text,
+      start_date date,
+      end_date date,
+      notes text,
+      sort_order integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE IF NOT EXISTS master_resume_leadership (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      profile_id uuid NOT NULL UNIQUE REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+      team_size integer,
+      scope text,
+      stakeholders text[] NOT NULL DEFAULT '{}'::text[],
+      budget text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_master_resume_profiles_one_default
+     ON master_resume_profiles(master_resume_id)
+     WHERE is_default`,
+    `CREATE INDEX IF NOT EXISTS idx_master_resume_profiles_master_resume
+     ON master_resume_profiles(master_resume_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_master_resume_profiles_active
+     ON master_resume_profiles(master_resume_id, is_active, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_master_resume_profiles_ai_enabled
+     ON master_resume_profiles(master_resume_id, use_for_ai, is_active, updated_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_master_resume_imports_user_created
+     ON master_resume_imports(user_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_master_resume_experiences_profile
+     ON master_resume_experiences(profile_id, sort_order, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_master_resume_projects_profile
+     ON master_resume_projects(profile_id, sort_order, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_master_resume_education_profile
+     ON master_resume_education(profile_id, sort_order, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_master_resume_bullets_experience
+     ON master_resume_bullets(experience_id, sort_order, created_at)`,
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_master_resumes_updated_at') THEN
+         CREATE TRIGGER trg_master_resumes_updated_at
+         BEFORE UPDATE ON master_resumes
+         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+       END IF;
+     END $$`,
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_master_resume_profiles_updated_at') THEN
+         CREATE TRIGGER trg_master_resume_profiles_updated_at
+         BEFORE UPDATE ON master_resume_profiles
+         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+       END IF;
+     END $$`,
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_master_resume_experiences_updated_at') THEN
+         CREATE TRIGGER trg_master_resume_experiences_updated_at
+         BEFORE UPDATE ON master_resume_experiences
+         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+       END IF;
+     END $$`,
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_master_resume_bullets_updated_at') THEN
+         CREATE TRIGGER trg_master_resume_bullets_updated_at
+         BEFORE UPDATE ON master_resume_bullets
+         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+       END IF;
+     END $$`,
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_master_resume_skills_updated_at') THEN
+         CREATE TRIGGER trg_master_resume_skills_updated_at
+         BEFORE UPDATE ON master_resume_skills
+         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+       END IF;
+     END $$`,
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_master_resume_projects_updated_at') THEN
+         CREATE TRIGGER trg_master_resume_projects_updated_at
+         BEFORE UPDATE ON master_resume_projects
+         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+       END IF;
+     END $$`,
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_master_resume_education_updated_at') THEN
+         CREATE TRIGGER trg_master_resume_education_updated_at
+         BEFORE UPDATE ON master_resume_education
+         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+       END IF;
+     END $$`,
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_master_resume_leadership_updated_at') THEN
+         CREATE TRIGGER trg_master_resume_leadership_updated_at
+         BEFORE UPDATE ON master_resume_leadership
+         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+       END IF;
+     END $$`,
+  ];
+
+  const client = await pool.connect();
+  try {
+    for (const stmt of statements) {
+      await client.query(stmt).catch((err: Error) => {
+        if (!/already exists/i.test(err.message)) {
+          console.warn(`[db] ensureMasterResumeTables warning: ${err.message}`);
+        }
+      });
+    }
+    console.log("[db] Master resume tables verified.");
+  } finally {
+    client.release();
+  }
+}
+
+async function ensureGmailTables() {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS gmail_accounts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL UNIQUE REFERENCES account_users(id) ON DELETE CASCADE,
+      email text NOT NULL DEFAULT '',
+      encrypted_access_token text NOT NULL DEFAULT '',
+      access_token_iv text NOT NULL DEFAULT '',
+      access_token_tag text NOT NULL DEFAULT '',
+      encrypted_refresh_token text NOT NULL DEFAULT '',
+      refresh_token_iv text NOT NULL DEFAULT '',
+      refresh_token_tag text NOT NULL DEFAULT '',
+      token_expires_at timestamptz,
+      last_sync_at timestamptz,
+      last_error text,
+      created_at timestamptz NOT NULL DEFAULT NOW(),
+      updated_at timestamptz NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS gmail_synced_messages (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      gmail_account_id uuid NOT NULL REFERENCES gmail_accounts(id) ON DELETE CASCADE,
+      gmail_message_id text NOT NULL,
+      gmail_thread_id text,
+      subject text,
+      sender text,
+      received_at timestamptz,
+      status text NOT NULL DEFAULT 'imported',
+      imported_job_id uuid REFERENCES jobs(id) ON DELETE SET NULL,
+      parsed_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT NOW(),
+      UNIQUE (gmail_account_id, gmail_message_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_gmail_accounts_user ON gmail_accounts(user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_gmail_synced_messages_account
+     ON gmail_synced_messages(gmail_account_id, created_at DESC)`,
+    `DO $$
+     BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_gmail_accounts_updated_at') THEN
+         CREATE TRIGGER trg_gmail_accounts_updated_at
+         BEFORE UPDATE ON gmail_accounts
+         FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+       END IF;
+     END $$`,
+  ];
+
+  const client = await pool.connect();
+  try {
+    for (const stmt of statements) {
+      await client.query(stmt).catch((err: Error) => {
+        if (!/already exists/i.test(err.message)) {
+          console.warn(`[db] ensureGmailTables warning: ${err.message}`);
+        }
+      });
+    }
+    console.log("[db] Gmail ingestion tables verified.");
   } finally {
     client.release();
   }
@@ -263,6 +551,8 @@ function validateEnv() {
 }
 
 applyMigrations()
+  .then(() => ensureMasterResumeTables())
+  .then(() => ensureGmailTables())
   .then(() => ensureCriticalColumns())
   .then(() => {
     validateEnv();

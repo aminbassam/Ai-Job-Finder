@@ -14,6 +14,7 @@ import { Signup } from "./pages/auth/Signup";
 import { ForgotPassword } from "./pages/auth/ForgotPassword";
 import { VerifyEmail } from "./pages/auth/VerifyEmail";
 import { AdminUsers } from "./pages/admin/AdminUsers";
+import { PlatformLogs } from "./pages/admin/PlatformLogs";
 
 export const router = createBrowserRouter([
   /* ── Auth routes (redirect to dashboard if already logged in) ── */
@@ -66,6 +67,7 @@ export const router = createBrowserRouter([
       { path: "analytics", Component: Analytics },
       { path: "settings", Component: Settings },
       { path: "admin/users", Component: AdminUsers },
+      { path: "admin/logs", Component: PlatformLogs },
     ],
   },
 

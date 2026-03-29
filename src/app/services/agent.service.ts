@@ -198,3 +198,26 @@ export const generateResume = (matchId: string) =>
     `/agent/results/${matchId}/generate-resume`,
     {}
   );
+
+export const generateResumeWithSelection = (
+  matchId: string,
+  data: {
+    profileIds?: string[];
+    useLegacyPreferences?: boolean;
+    provider?: "openai" | "anthropic";
+  }
+) =>
+  api.post<{
+    documentId: string;
+    title: string;
+    message: string;
+    resume?: {
+      id: string;
+      title: string;
+      lastModified: string;
+      resumeType?: "master" | "tailored";
+    };
+  }>(
+    `/agent/results/${matchId}/generate-resume`,
+    data
+  );

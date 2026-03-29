@@ -21,6 +21,7 @@ export interface SearchQuery {
   locations: string[];
   remoteOnly: boolean;
   mustHaveKeywords: string[];
+  experienceLevels?: string[];
   jobTypes?: string[];
   postedWithinDays?: number | null;
   searchMode: "strict" | "balanced" | "broad";

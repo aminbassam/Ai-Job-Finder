@@ -26,6 +26,8 @@ function TierBadge({ tier }: { tier?: string }) {
 function SourceBadge({ source }: { source: string }) {
   const colors: Record<string, string> = {
     google: "#4285F4",
+    builtinaustin: "#F97316",
+    "linkedin-email": "#0A66C2",
     greenhouse: "#24a362",
     lever: "#3c5a99",
     ashby: "#7c3aed",

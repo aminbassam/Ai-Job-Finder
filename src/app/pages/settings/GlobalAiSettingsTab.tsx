@@ -145,6 +145,18 @@ const ACCENT_COLORS = [
   "#BE123C",
 ] as const;
 
+const TEMPLATE_OPTIONS = [
+  { value: "modern", label: "Modern", blurb: "Balanced accent-first layout." },
+  { value: "classic", label: "Classic", blurb: "Traditional serif-forward format." },
+  { value: "compact", label: "Compact", blurb: "Dense layout for maximum content." },
+  { value: "product-owner", label: "Product Owner", blurb: "Inspired by the Uneekor product-owner resume." },
+  { value: "wordpress-operator", label: "WordPress Operator", blurb: "Inspired by the LowCostPetVax technical operations resume." },
+] as const;
+
+function isHexColor(value: string): boolean {
+  return /^#[0-9a-fA-F]{6}$/.test(value.trim());
+}
+
 export function GlobalAiSettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -192,6 +204,9 @@ export function GlobalAiSettingsTab() {
     setSaved(false);
     setError(null);
     try {
+      if (!isHexColor(form.resumeAccentColor)) {
+        throw new Error("Resume accent color must be a full hex value like #1D4ED8.");
+      }
       await settingsService.updatePreferences({
         aiTone: form.aiTone,
         resumeStyle: form.resumeStyle,
@@ -287,15 +302,29 @@ export function GlobalAiSettingsTab() {
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <FieldLabel hint="Controls the overall visual style of generated resumes.">Resume Template</FieldLabel>
-            <SegmentedControl
-              value={form.resumeTemplate}
-              onChange={(v) => update("resumeTemplate", v as typeof form.resumeTemplate)}
-              options={[
-                { value: "modern", label: "Modern" },
-                { value: "classic", label: "Classic" },
-                { value: "compact", label: "Compact" },
-              ]}
-            />
+            <div className="grid gap-2">
+              {TEMPLATE_OPTIONS.map((option) => {
+                const selected = form.resumeTemplate === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => update("resumeTemplate", option.value as typeof form.resumeTemplate)}
+                    className={`rounded-xl border p-3 text-left transition-colors ${
+                      selected
+                        ? "border-[#4F8CFF]/50 bg-[#4F8CFF]/10"
+                        : "border-[#1F2937] bg-[#0B0F14] hover:border-[#374151]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[13px] font-semibold text-white">{option.label}</p>
+                      {selected && <CheckCircle2 className="h-4 w-4 text-[#93C5FD]" />}
+                    </div>
+                    <p className="mt-1 text-[12px] text-[#6B7280]">{option.blurb}</p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div>
             <FieldLabel hint="Controls spacing and content density in the formatted resume.">Layout Density</FieldLabel>
@@ -333,6 +362,28 @@ export function GlobalAiSettingsTab() {
               );
             })}
           </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-[120px,1fr]">
+            <input
+              type="color"
+              value={isHexColor(form.resumeAccentColor) ? form.resumeAccentColor : DEFAULTS.resumeAccentColor}
+              onChange={(event) => update("resumeAccentColor", event.target.value)}
+              className="h-11 w-full cursor-pointer rounded-lg border border-[#1F2937] bg-[#0B0F14] p-1"
+            />
+            <input
+              type="text"
+              value={form.resumeAccentColor}
+              onChange={(event) => update("resumeAccentColor", event.target.value)}
+              placeholder="#2563EB"
+              className={`h-11 rounded-lg border bg-[#0B0F14] px-3 text-[13px] text-white outline-none ${
+                isHexColor(form.resumeAccentColor) || !form.resumeAccentColor
+                  ? "border-[#1F2937] focus:border-[#4F8CFF]"
+                  : "border-[#7F1D1D] focus:border-[#F87171]"
+              }`}
+            />
+          </div>
+          {!isHexColor(form.resumeAccentColor) && form.resumeAccentColor.trim().length > 0 && (
+            <p className="mt-2 text-[11px] text-[#FCA5A5]">Use a full hex color like `#1D4ED8`.</p>
+          )}
         </div>
 
         <div className="rounded-2xl border border-[#1F2937] bg-[#0B0F14] p-5">
@@ -340,7 +391,23 @@ export function GlobalAiSettingsTab() {
             <Palette className="h-4 w-4 text-[#4F8CFF]" />
             <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-[#6B7280]">Live Preview</p>
           </div>
-          <div className="rounded-xl bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.18)]">
+          <div
+            className={`rounded-xl bg-white p-5 shadow-[0_18px_40px_rgba(15,23,42,0.18)] ${
+              form.resumeTemplate === "product-owner"
+                ? "border-t-[6px]"
+                : form.resumeTemplate === "wordpress-operator"
+                  ? "border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.98),#ffffff_140px)]"
+                  : form.resumeTemplate === "classic"
+                    ? "border-t-[3px]"
+                    : ""
+            }`}
+            style={{
+              borderTopColor:
+                form.resumeTemplate === "product-owner" || form.resumeTemplate === "classic"
+                  ? form.resumeAccentColor
+                  : undefined,
+            }}
+          >
             <p
               className="text-[30px] text-[#0F172A]"
               style={{ fontFamily: `'${form.resumeTitleFont}', serif` }}
@@ -355,7 +422,9 @@ export function GlobalAiSettingsTab() {
             </p>
             <div className="mt-5">
               <p
-                className="text-[12px] font-semibold uppercase tracking-[0.18em]"
+                className={`text-[12px] font-semibold uppercase ${
+                  form.resumeTemplate === "wordpress-operator" ? "tracking-[0.14em]" : "tracking-[0.18em]"
+                }`}
                 style={{ color: form.resumeAccentColor, fontFamily: `'${form.resumeTitleFont}', serif` }}
               >
                 Professional Summary

@@ -12,9 +12,19 @@ import { Badge } from "../../components/ui/badge";
 import { Slider } from "../../components/ui/slider";
 import { TagInput } from "../../components/ui/tag-input";
 import {
-  SearchProfile, ProfileInput,
-  getProfiles, createProfile, updateProfile, deleteProfile, runProfile,
+  SearchProfile, ProfileInput, ConnectorConfig,
+  getProfiles, getConnectors, createProfile, updateProfile, deleteProfile, runProfile,
 } from "../../services/agent.service";
+
+const SOURCE_LABELS: Record<string, string> = {
+  greenhouse: "Greenhouse",
+  lever: "Lever",
+  google: "Google",
+  builtinaustin: "Built In Austin",
+  "linkedin-email": "LinkedIn Email",
+  upwork: "Upwork",
+  ashby: "Ashby",
+};
 
 /* ──────────────── Segmented control ────────────────────────── */
 function SegCtrl({
@@ -57,7 +67,7 @@ const BLANK: ProfileInput = {
   excludedCompanies: [],
   includedCompanies: [],
   companySizes: [],
-  sources: ["greenhouse", "lever", "google"],
+  sources: [],
   searchMode: "balanced",
   scoreThreshold: 70,
   autoResume: false,
@@ -69,10 +79,12 @@ const BLANK: ProfileInput = {
 /* ──────────────── Profile Form ─────────────────────────────── */
 function ProfileForm({
   initial,
+  connectors,
   onSave,
   onCancel,
 }: {
   initial: ProfileInput;
+  connectors: ConnectorConfig[];
   onSave: (data: ProfileInput) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -84,13 +96,13 @@ function ProfileForm({
   const upd = <K extends keyof ProfileInput>(k: K, v: ProfileInput[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const sourceOptions = [
-    { key: "greenhouse", label: "Greenhouse" },
-    { key: "lever", label: "Lever" },
-    { key: "google", label: "Google" },
-    { key: "upwork", label: "Upwork" },
-    { key: "ashby", label: "Ashby" },
-  ];
+  const activeSourceOptions = connectors
+    .filter((connector) => connector.isActive)
+    .map((connector) => ({
+      key: connector.connector,
+      label: SOURCE_LABELS[connector.connector] ?? connector.connector,
+    }));
+  const activeSourceKeys = activeSourceOptions.map((connector) => connector.key);
   const expOptions = ["Entry", "Mid-level", "Senior", "Lead", "Director"];
   const jobTypeOptions = [
     { key: "full-time", label: "Full-time" },
@@ -117,6 +129,14 @@ function ProfileForm({
       ? form.jobTypes.filter((t) => t !== type)
       : [...form.jobTypes, type]);
   }
+
+  useEffect(() => {
+    setForm((current) => {
+      const nextSources = current.sources.filter((source) => activeSourceKeys.includes(source));
+      if (nextSources.length === current.sources.length) return current;
+      return { ...current, sources: nextSources };
+    });
+  }, [activeSourceKeys.join("|")]);
 
   async function handleSave() {
     if (!form.name.trim()) {
@@ -267,22 +287,28 @@ function ProfileForm({
       {/* Sources */}
       <div>
         <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Job Sources *</Label>
-        <div className="flex flex-wrap gap-2">
-          {sourceOptions.map((src) => (
-            <button
-              key={src.key}
-              type="button"
-              onClick={() => { toggleSource(src.key); setSaveError(""); }}
-              className={`px-3 py-1.5 rounded-lg text-[12px] border transition-all ${
-                form.sources.includes(src.key)
-                  ? "bg-[#4F8CFF]/15 text-[#4F8CFF] border-[#4F8CFF]/30"
-                  : "bg-[#0B0F14] text-[#6B7280] border-[#1F2937] hover:text-[#9CA3AF]"
-              }`}
-            >
-              {src.label}
-            </button>
-          ))}
-        </div>
+        {activeSourceOptions.length === 0 ? (
+          <div className="rounded-lg border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-3 py-2.5 text-[12px] text-[#F59E0B]">
+            No active sources yet. Enable at least one connector in the <span className="font-medium text-white">Sources</span> tab before saving this profile.
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {activeSourceOptions.map((src) => (
+              <button
+                key={src.key}
+                type="button"
+                onClick={() => { toggleSource(src.key); setSaveError(""); }}
+                className={`px-3 py-1.5 rounded-lg text-[12px] border transition-all ${
+                  form.sources.includes(src.key)
+                    ? "bg-[#4F8CFF]/15 text-[#4F8CFF] border-[#4F8CFF]/30"
+                    : "bg-[#0B0F14] text-[#6B7280] border-[#1F2937] hover:text-[#9CA3AF]"
+                }`}
+              >
+                {src.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Schedule + Mode */}
@@ -542,8 +568,10 @@ function ProfileCard({
 /* ──────────────── Main Tab ─────────────────────────────────── */
 export function ProfilesTab() {
   const [profiles, setProfiles] = useState<SearchProfile[]>([]);
+  const [connectors, setConnectors] = useState<ConnectorConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [connectorError, setConnectorError] = useState("");
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
@@ -551,15 +579,32 @@ export function ProfilesTab() {
   async function load() {
     setLoading(true);
     setLoadError("");
-    try {
-      const data = await getProfiles();
-      setProfiles(data);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Could not load profiles.";
+    setConnectorError("");
+
+    const [profilesResult, connectorsResult] = await Promise.allSettled([
+      getProfiles(),
+      getConnectors(),
+    ]);
+
+    if (profilesResult.status === "fulfilled") {
+      setProfiles(profilesResult.value);
+    } else {
+      const msg = profilesResult.reason instanceof Error
+        ? profilesResult.reason.message
+        : "Could not load profiles.";
       setLoadError(msg);
-    } finally {
-      setLoading(false);
     }
+
+    if (connectorsResult.status === "fulfilled") {
+      setConnectors(connectorsResult.value);
+    } else {
+      const msg = connectorsResult.reason instanceof Error
+        ? connectorsResult.reason.message
+        : "Could not load sources.";
+      setConnectorError(msg);
+    }
+
+    setLoading(false);
   }
 
   useEffect(() => { load(); }, []);
@@ -651,6 +696,13 @@ export function ProfilesTab() {
         </div>
       )}
 
+      {connectorError && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-[#F59E0B]/10 border border-[#F59E0B]/20 text-[#F59E0B] text-[12px]">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          Source status could not be refreshed: {connectorError}
+        </div>
+      )}
+
       {/* Partial load error — show banner but still show cached profiles */}
       {loadError && profiles.length > 0 && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-[#F59E0B]/10 border border-[#F59E0B]/20 text-[#F59E0B] text-[12px]">
@@ -668,6 +720,7 @@ export function ProfilesTab() {
           <h3 className="text-[15px] font-semibold text-white mb-5">New Search Profile</h3>
           <ProfileForm
             initial={BLANK}
+            connectors={connectors}
             onSave={handleCreate}
             onCancel={() => setCreating(false)}
           />
@@ -731,6 +784,7 @@ export function ProfilesTab() {
                     scheduleIntervalMinutes: p.scheduleIntervalMinutes,
                     isActive: p.isActive,
                   }}
+                  connectors={connectors}
                   onSave={(data) => handleUpdate(p.id, data)}
                   onCancel={() => setEditingId(null)}
                 />

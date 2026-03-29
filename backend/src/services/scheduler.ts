@@ -8,6 +8,7 @@
 import cron from "node-cron";
 import { pool } from "../db/pool";
 import { PipelineProfile, runPipeline } from "./pipeline";
+import { syncAllConnectedGmailAccounts } from "./gmail-linkedin-ingestion";
 
 function nextWeekdayAtEight(now: Date): Date {
   const next = new Date(now);
@@ -52,6 +53,7 @@ async function processDueProfiles(): Promise<void> {
       job_titles: string[];
       locations: string[];
       remote_only: boolean;
+      experience_levels: string[];
       salary_min: number | null;
       salary_max: number | null;
       job_types: string[];
@@ -68,6 +70,7 @@ async function processDueProfiles(): Promise<void> {
     }>(
       `SELECT sp.id, sp.user_id, sp.name,
               sp.job_titles, sp.locations, sp.remote_only,
+              sp.experience_levels,
               sp.salary_min, sp.salary_max,
               sp.job_types, sp.posted_within_days,
               sp.must_have_keywords, sp.nice_to_have_keywords,
@@ -87,6 +90,7 @@ async function processDueProfiles(): Promise<void> {
       jobTitles: r.job_titles ?? [],
       locations: r.locations ?? [],
       remoteOnly: r.remote_only,
+      experienceLevels: r.experience_levels ?? [],
       salaryMin: r.salary_min,
       salaryMax: r.salary_max,
       jobTypes: r.job_types ?? [],
@@ -160,5 +164,10 @@ export function startScheduler(): void {
       console.error("[scheduler] Unhandled error:", err)
     );
   });
-  console.log("[scheduler] Started — polling every 30 min");
+  cron.schedule("*/15 * * * *", () => {
+    syncAllConnectedGmailAccounts().catch((err) =>
+      console.error("[gmail-sync] Unhandled scheduler error:", err)
+    );
+  });
+  console.log("[scheduler] Started — polling agent profiles every 30 min and Gmail every 15 min");
 }

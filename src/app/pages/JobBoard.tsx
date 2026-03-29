@@ -24,13 +24,15 @@ import {
 import {
   getResults,
   setMatchStatus,
-  generateResume,
+  generateResumeWithSelection,
   deleteMatch,
   type JobMatch,
 } from "../services/agent.service";
+import { applicationsService } from "../services/applications.service";
 import { DocumentPreviewModal, type DocumentPreviewRef } from "../components/documents/DocumentPreviewModal";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { buildJobInsights } from "../utils/job-insights";
+import { ResumeGenerationDialog } from "../components/resume/ResumeGenerationDialog";
 
 function scoreColor(score?: number): string {
   if (score == null) return "#6B7280";
@@ -141,16 +143,19 @@ function JobBoardItem({
   job,
   onStatusChange,
   onDelete,
+  onApply,
   onResumeLinked,
   onOpenResume,
 }: {
   job: JobMatch;
   onStatusChange: (id: string, status: JobMatch["status"]) => void;
   onDelete: (id: string) => Promise<void>;
+  onApply: (id: string) => Promise<void>;
   onResumeLinked: (id: string, resume: NonNullable<JobMatch["linkedResume"]>) => void;
   onOpenResume: (doc: DocumentPreviewRef) => void;
 }) {
   const navigate = useNavigate();
+  const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [state, setState] = useState<CardState>({
     moreInfoExpanded: false,
     aiExpanded: false,
@@ -197,8 +202,16 @@ function JobBoardItem({
     onStatusChange(job.id, next);
   };
 
-  const handleApplied = () => {
-    onStatusChange(job.id, "applied");
+  const handleApplied = async () => {
+    setState((s) => ({ ...s, generateError: null }));
+    try {
+      await onApply(job.id);
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        generateError: err instanceof Error ? err.message : "Failed to create application.",
+      }));
+    }
   };
 
   const handleDismiss = () => {
@@ -221,13 +234,18 @@ function JobBoardItem({
     }
   };
 
-  const handleGenerateResume = async () => {
+  const handleGenerateResume = async (selection: {
+    profileIds?: string[];
+    useLegacyPreferences?: boolean;
+    provider: "openai" | "anthropic";
+  }) => {
     setState((s) => ({ ...s, generating: true, generateError: null }));
     try {
-      const result = await generateResume(job.id);
+      const result = await generateResumeWithSelection(job.id, selection);
       if (result.resume) {
         onResumeLinked(job.id, result.resume);
       }
+      setShowResumeDialog(false);
       setState((s) => ({ ...s, generating: false, generated: true }));
     } catch (err) {
       setState((s) => ({
@@ -296,7 +314,7 @@ function JobBoardItem({
       </button>
 
       <button
-        onClick={handleApplied}
+        onClick={() => void handleApplied()}
         disabled={job.status === "applied"}
         className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-all ${
           job.status === "applied"
@@ -353,7 +371,7 @@ function JobBoardItem({
         </button>
       ) : (
         <button
-          onClick={handleGenerateResume}
+          onClick={() => setShowResumeDialog(true)}
           disabled={state.generating}
           className="flex items-center gap-1.5 rounded-lg border border-[#4F8CFF]/30 bg-[#4F8CFF]/10 px-3 py-1.5 text-[12px] font-medium text-[#4F8CFF] transition-all hover:bg-[#4F8CFF]/20 disabled:opacity-60"
         >
@@ -580,6 +598,7 @@ function JobBoardItem({
   ) : null;
 
   return (
+    <>
     <div className={`rounded-xl border border-[#1F2937] bg-[#111827] p-5 transition-all ${dismissed ? "opacity-40" : "hover:border-[#4F8CFF]/30"}`}>
       <div className="mb-4 flex items-start gap-4">
         <ScoreRing score={job.aiScore} />
@@ -706,6 +725,16 @@ function JobBoardItem({
         )}
       </div>
     </div>
+    <ResumeGenerationDialog
+      open={showResumeDialog}
+      onOpenChange={setShowResumeDialog}
+      jobTitle={job.title}
+      company={job.company}
+      generating={state.generating}
+      error={state.generateError}
+      onGenerate={handleGenerateResume}
+    />
+    </>
   );
 }
 
@@ -713,16 +742,19 @@ function JobBoardTableRow({
   job,
   onStatusChange,
   onDelete,
+  onApply,
   onResumeLinked,
   onOpenResume,
 }: {
   job: JobMatch;
   onStatusChange: (id: string, status: JobMatch["status"]) => void;
   onDelete: (id: string) => Promise<void>;
+  onApply: (id: string) => Promise<void>;
   onResumeLinked: (id: string, resume: NonNullable<JobMatch["linkedResume"]>) => void;
   onOpenResume: (doc: DocumentPreviewRef) => void;
 }) {
   const navigate = useNavigate();
+  const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [state, setState] = useState<CardState>({
     moreInfoExpanded: false,
     aiExpanded: false,
@@ -774,8 +806,16 @@ function JobBoardTableRow({
     onStatusChange(job.id, next);
   };
 
-  const handleApplied = () => {
-    onStatusChange(job.id, "applied");
+  const handleApplied = async () => {
+    setState((s) => ({ ...s, generateError: null }));
+    try {
+      await onApply(job.id);
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        generateError: err instanceof Error ? err.message : "Failed to create application.",
+      }));
+    }
   };
 
   const handleDismiss = () => {
@@ -798,13 +838,18 @@ function JobBoardTableRow({
     }
   };
 
-  const handleGenerateResume = async () => {
+  const handleGenerateResume = async (selection: {
+    profileIds?: string[];
+    useLegacyPreferences?: boolean;
+    provider: "openai" | "anthropic";
+  }) => {
     setState((s) => ({ ...s, generating: true, generateError: null }));
     try {
-      const result = await generateResume(job.id);
+      const result = await generateResumeWithSelection(job.id, selection);
       if (result.resume) {
         onResumeLinked(job.id, result.resume);
       }
+      setShowResumeDialog(false);
       setState((s) => ({ ...s, generating: false, generated: true }));
     } catch (err) {
       setState((s) => ({
@@ -871,7 +916,7 @@ function JobBoardTableRow({
       </button>
 
       <button
-        onClick={handleApplied}
+        onClick={() => void handleApplied()}
         disabled={job.status === "applied"}
         className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-all ${
           job.status === "applied"
@@ -1232,7 +1277,7 @@ function JobBoardTableRow({
             </div>
           ) : (
             <button
-              onClick={handleGenerateResume}
+              onClick={() => setShowResumeDialog(true)}
               disabled={state.generating}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[#4F8CFF]/30 bg-[#4F8CFF]/10 px-2.5 py-1.5 text-[11px] font-medium text-[#4F8CFF] transition-all hover:bg-[#4F8CFF]/20 disabled:opacity-60"
             >
@@ -1303,6 +1348,15 @@ function JobBoardTableRow({
           </TableCell>
         </TableRow>
       )}
+      <ResumeGenerationDialog
+        open={showResumeDialog}
+        onOpenChange={setShowResumeDialog}
+        jobTitle={job.title}
+        company={job.company}
+        generating={state.generating}
+        error={state.generateError}
+        onGenerate={handleGenerateResume}
+      />
     </>
   );
 }
@@ -1460,6 +1514,36 @@ export function JobBoard() {
     }
   };
 
+  const handleApply = async (id: string) => {
+    const previousJobs = jobs;
+    const targetJob = jobs.find((job) => job.id === id);
+    if (!targetJob) return;
+
+    const updatedJob = { ...targetJob, status: "applied" as JobMatch["status"] };
+    const matchedBefore = jobMatchesTab(targetJob, tab);
+    const matchesAfter = jobMatchesTab(updatedJob, tab);
+
+    setJobs((prev) => prev.map((job) => (job.id === id ? updatedJob : job)));
+    if (matchedBefore && !matchesAfter) {
+      setTotal((prev) => Math.max(0, prev - 1));
+    } else if (!matchedBefore && matchesAfter) {
+      setTotal((prev) => prev + 1);
+    }
+
+    try {
+      await applicationsService.createFromMatch(id);
+      await refreshCounts();
+    } catch (err) {
+      setJobs(previousJobs);
+      setTotal((prev) => {
+        if (matchedBefore && !matchesAfter) return prev + 1;
+        if (!matchedBefore && matchesAfter) return Math.max(0, prev - 1);
+        return prev;
+      });
+      throw err;
+    }
+  };
+
   const handleDelete = async (id: string) => {
     const previousJobs = jobs;
     const previousTotal = total;
@@ -1614,6 +1698,7 @@ export function JobBoard() {
                   job={job}
                   onStatusChange={handleStatusChange}
                   onDelete={handleDelete}
+                  onApply={handleApply}
                   onResumeLinked={handleResumeLinked}
                   onOpenResume={setViewingResume}
                 />
@@ -1640,6 +1725,7 @@ export function JobBoard() {
                       job={job}
                       onStatusChange={handleStatusChange}
                       onDelete={handleDelete}
+                      onApply={handleApply}
                       onResumeLinked={handleResumeLinked}
                       onOpenResume={setViewingResume}
                     />

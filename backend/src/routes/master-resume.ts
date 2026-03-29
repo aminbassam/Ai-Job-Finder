@@ -46,6 +46,16 @@ const projectSchema = z.object({
   metrics: z.string().max(1000).optional().or(z.literal("")),
 });
 
+const educationSchema = z.object({
+  id: z.string().uuid().optional(),
+  school: z.string().min(1).max(250),
+  degree: z.string().max(250).optional().or(z.literal("")),
+  fieldOfStudy: z.string().max(250).optional().or(z.literal("")),
+  startDate: z.string().optional().nullable(),
+  endDate: z.string().optional().nullable(),
+  notes: z.string().max(3000).optional().or(z.literal("")),
+});
+
 const leadershipSchema = z.object({
   teamSize: z.number().int().min(0).max(100000).optional().nullable(),
   scope: z.string().max(3000).optional().or(z.literal("")),
@@ -58,6 +68,8 @@ const profileSchema = z.object({
   targetRoles: z.array(z.string().max(150)).default([]),
   summary: z.string().max(10000).optional().or(z.literal("")),
   experienceYears: z.number().int().min(0).max(80).optional().nullable(),
+  isActive: z.boolean().optional(),
+  useForAi: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   sourceImportId: z.string().uuid().optional().nullable(),
   experiences: z.array(experienceSchema).default([]),
@@ -67,6 +79,7 @@ const profileSchema = z.object({
     soft: z.array(z.string().max(100)).default([]),
     certifications: z.array(z.string().max(150)).default([]),
   }),
+  education: z.array(educationSchema).default([]),
   projects: z.array(projectSchema).default([]),
   leadership: leadershipSchema.optional().nullable(),
 });
@@ -148,11 +161,13 @@ router.get("/imports", async (req: Request, res: Response) => {
 const createFromImportSchema = z.object({
   importId: z.string().uuid(),
   name: z.string().max(200).optional(),
+  isActive: z.boolean().optional(),
+  useForAi: z.boolean().optional(),
   isDefault: z.boolean().optional(),
 });
 
 router.post("/profiles/from-import", validate(createFromImportSchema), async (req: Request, res: Response) => {
-  const { importId, name, isDefault } = req.body as z.infer<typeof createFromImportSchema>;
+  const { importId, name, isActive, useForAi, isDefault } = req.body as z.infer<typeof createFromImportSchema>;
 
   try {
     const imported = await queryOne<{ parsed_json: Record<string, unknown> }>(
@@ -167,6 +182,8 @@ router.post("/profiles/from-import", validate(createFromImportSchema), async (re
 
     const normalized = normalizeImportedResumeToProfile(imported.parsed_json, name);
     normalized.sourceImportId = importId;
+    normalized.isActive = isActive !== false;
+    normalized.useForAi = useForAi !== false;
     normalized.isDefault = Boolean(isDefault);
 
     const profile = await saveMasterResumeProfile(req.userId, normalized);

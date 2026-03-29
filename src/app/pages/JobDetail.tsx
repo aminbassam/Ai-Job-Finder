@@ -19,12 +19,14 @@ import { Progress } from "../components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import {
   getResult,
-  generateResume,
+  generateResumeWithSelection,
   setMatchStatus,
   type JobMatch,
 } from "../services/agent.service";
+import { applicationsService } from "../services/applications.service";
 import { DocumentPreviewModal, type DocumentPreviewRef } from "../components/documents/DocumentPreviewModal";
 import { buildJobInsights } from "../utils/job-insights";
+import { ResumeGenerationDialog } from "../components/resume/ResumeGenerationDialog";
 
 function formatDate(value?: string) {
   if (!value) return null;
@@ -83,6 +85,7 @@ export function JobDetail() {
   const [error, setError] = useState<string | null>(null);
   const [viewingResume, setViewingResume] = useState<DocumentPreviewRef | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>(tabFromHash(location.hash));
 
   useEffect(() => {
@@ -535,19 +538,7 @@ export function JobDetail() {
                 <Button
                   className="w-full bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90"
                   disabled={generating}
-                  onClick={async () => {
-                    setGenerating(true);
-                    try {
-                      const result = await generateResume(job.id);
-                      if (result.resume) {
-                        setJob((prev) => prev ? { ...prev, resumeGenerated: true, linkedResume: result.resume } : prev);
-                      }
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : "Failed to generate resume.");
-                    } finally {
-                      setGenerating(false);
-                    }
-                  }}
+                  onClick={() => setShowResumeDialog(true)}
                 >
                   {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
                   {generating ? "Generating…" : "Generate Resume"}
@@ -576,10 +567,10 @@ export function JobDetail() {
                 variant="outline"
                 onClick={async () => {
                   try {
-                    await setMatchStatus(job.id, "applied");
+                    await applicationsService.createFromMatch(job.id);
                     setJob((prev) => (prev ? { ...prev, status: "applied" } : prev));
                   } catch (err) {
-                    setError(err instanceof Error ? err.message : "Failed to update job.");
+                    setError(err instanceof Error ? err.message : "Failed to create application.");
                   }
                 }}
               >
@@ -626,6 +617,30 @@ export function JobDetail() {
       {viewingResume && (
         <DocumentPreviewModal doc={viewingResume} onClose={() => setViewingResume(null)} />
       )}
+
+      <ResumeGenerationDialog
+        open={showResumeDialog}
+        onOpenChange={setShowResumeDialog}
+        jobTitle={job.title}
+        company={job.company}
+        generating={generating}
+        error={error}
+        onGenerate={async (selection) => {
+          setGenerating(true);
+          setError(null);
+          try {
+            const result = await generateResumeWithSelection(job.id, selection);
+            if (result.resume) {
+              setJob((prev) => prev ? { ...prev, resumeGenerated: true, linkedResume: result.resume } : prev);
+            }
+            setShowResumeDialog(false);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to generate resume.");
+          } finally {
+            setGenerating(false);
+          }
+        }}
+      />
     </div>
   );
 }

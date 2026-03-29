@@ -1,6 +1,6 @@
 /**
  * Sources Tab — configure job source connectors per the 4-lane strategy:
- *  Lane 1: Autonomous connectors (Google, Greenhouse, Lever, Ashby) — primary autonomous discovery
+ *  Lane 1: Autonomous connectors (Google, Built In Austin, Greenhouse, Lever, Ashby) — primary autonomous discovery
  *  Lane 2: Official APIs (Upwork OAuth) — structured source
  *  Lane 3: Browser Extension — manual/LinkedIn/Indeed (setup guide)
  *  Lane 4: Email ingestion — alert emails from any platform
@@ -16,6 +16,7 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Switch } from "../../components/ui/switch";
 import { Badge } from "../../components/ui/badge";
+import { TagInput } from "../../components/ui/tag-input";
 import { ConnectorConfig, getConnectors, saveConnector } from "../../services/agent.service";
 
 /* ─── Lane badge ──────────────────────────────────────────────────────── */
@@ -226,7 +227,7 @@ export function SourcesTab() {
         <div className="flex items-start gap-3">
           <Info className="h-4 w-4 text-[#4F8CFF] mt-0.5 shrink-0" />
           <div className="text-[12px] text-[#9CA3AF] space-y-1">
-            <p><span className="text-[#10B981] font-medium">Lane 1 — Autonomous connectors</span>: Google search plus Greenhouse, Lever, and Ashby company boards for continuous discovery.</p>
+            <p><span className="text-[#10B981] font-medium">Lane 1 — Autonomous connectors</span>: Google search, Built In Austin, plus Greenhouse, Lever, and Ashby company boards for continuous discovery.</p>
             <p><span className="text-[#4F8CFF] font-medium">Lane 2 — Official APIs</span>: Upwork GraphQL with your OAuth token for structured contract work.</p>
             <p><span className="text-[#F59E0B] font-medium">Lane 3 — Browser extension</span>: manual save from LinkedIn, Indeed, and any job page you visit.</p>
             <p><span className="text-[#6366F1] font-medium">Lane 4 — Email ingestion</span>: parse job alert emails from LinkedIn, Indeed, ZipRecruiter automatically.</p>
@@ -268,6 +269,119 @@ export function SourcesTab() {
                     onChange={(e) => setConfig({ ...config, resultLimit: Number(e.target.value) })}
                     className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] h-9 text-[13px]"
                   />
+                </div>
+              </div>
+            )}
+          </ConnectorCard>
+
+          <ConnectorCard
+            lane={1} laneLabel="Autonomous"
+            connector="builtinaustin"
+            title="Built In Austin"
+            description="Crawls BuiltInAustin job search pages, fetches details, and enriches each posting for the agent pipeline."
+            color="#F97316"
+            logoChar="B"
+            cfg={cfgMap["builtinaustin"]}
+            onSave={(a, c) => save("builtinaustin", a, c)}
+          >
+            {(config, setConfig) => (
+              <div className="space-y-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Base URL</Label>
+                    <Input
+                      value={String(config.base_url ?? "https://www.builtinaustin.com/jobs")}
+                      onChange={(e) => setConfig({ ...config, base_url: e.target.value })}
+                      placeholder="https://www.builtinaustin.com/jobs"
+                      className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] h-9 text-[13px]"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Max pages</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={String((config.max_pages as number) ?? 5)}
+                      onChange={(e) => setConfig({ ...config, max_pages: Number(e.target.value) })}
+                      className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] h-9 text-[13px]"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Rate limit (ms)</Label>
+                    <Input
+                      type="number"
+                      min={600}
+                      max={5000}
+                      value={String((config.rate_limit_ms as number) ?? 1500)}
+                      onChange={(e) => setConfig({ ...config, rate_limit_ms: Number(e.target.value) })}
+                      className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] h-9 text-[13px]"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Timeout (ms)</Label>
+                    <Input
+                      type="number"
+                      min={5000}
+                      max={30000}
+                      value={String((config.timeout_ms as number) ?? 15000)}
+                      onChange={(e) => setConfig({ ...config, timeout_ms: Number(e.target.value) })}
+                      className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] h-9 text-[13px]"
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-3 space-y-3">
+                  <p className="text-[12px] font-medium text-white">Built In Austin defaults</p>
+                  <div>
+                    <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Preferred locations</Label>
+                    <TagInput
+                      tags={((config.filters as Record<string, unknown> | undefined)?.locations as string[]) ?? []}
+                      placeholder="Austin, Remote"
+                      onChange={(v) => setConfig({
+                        ...config,
+                        filters: { ...(config.filters as Record<string, unknown> ?? {}), locations: v },
+                      })}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Experience levels</Label>
+                    <TagInput
+                      tags={((config.filters as Record<string, unknown> | undefined)?.experience_levels as string[]) ?? []}
+                      placeholder="Entry, Mid, Senior"
+                      onChange={(v) => setConfig({
+                        ...config,
+                        filters: { ...(config.filters as Record<string, unknown> ?? {}), experience_levels: v },
+                      })}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Required keywords</Label>
+                    <TagInput
+                      tags={((config.filters as Record<string, unknown> | undefined)?.keywords as string[]) ?? []}
+                      placeholder="SaaS, product, roadmap"
+                      onChange={(v) => setConfig({
+                        ...config,
+                        filters: { ...(config.filters as Record<string, unknown> ?? {}), keywords: v },
+                      })}
+                    />
+                  </div>
+                  <label className="flex items-center justify-between gap-3 rounded-lg border border-[#1F2937] bg-[#111827] px-3 py-2">
+                    <div>
+                      <p className="text-[13px] font-medium text-white">Remote only</p>
+                      <p className="text-[11px] text-[#6B7280]">Only keep Built In Austin jobs marked remote.</p>
+                    </div>
+                    <Switch
+                      checked={Boolean((config.filters as Record<string, unknown> | undefined)?.remote_only)}
+                      onCheckedChange={(checked) => setConfig({
+                        ...config,
+                        filters: { ...(config.filters as Record<string, unknown> ?? {}), remote_only: checked },
+                      })}
+                    />
+                  </label>
                 </div>
               </div>
             )}
@@ -463,40 +577,41 @@ export function SourcesTab() {
         </h4>
         <ConnectorCard
           lane={4} laneLabel="Email"
-          connector="email"
-          title="Job Alert Emails"
-          description="Parse job alert emails from LinkedIn, Indeed, ZipRecruiter, and more"
-          color="#6366F1"
-          logoChar="@"
-          cfg={cfgMap["email"]}
-          onSave={(a, c) => save("email", a, c)}
+          connector="linkedin-email"
+          title="LinkedIn Email Alerts"
+          description="Use Gmail-connected LinkedIn alert emails as a passive job discovery source"
+          color="#0A66C2"
+          logoChar="in"
+          cfg={cfgMap["linkedin-email"]}
+          onSave={(a, c) => save("linkedin-email", a, c)}
         >
           {(config, setConfig) => (
             <div className="space-y-3">
               <div className="flex items-start gap-2 text-[12px] text-[#9CA3AF] bg-[#111827] border border-[#1F2937] rounded-lg p-3">
                 <Info className="h-3.5 w-3.5 mt-0.5 text-[#4F8CFF] shrink-0" />
                 <span>
-                  Forward job alert emails to your JobFlow inbox address. Works with LinkedIn Jobs,
-                  Indeed alerts, ZipRecruiter, and any job board that sends email digests.
+                  Connect Gmail in Settings → Integrations. JobFlow will read LinkedIn job alert emails,
+                  extract the job details, score them, and push them into the Job Board.
                 </span>
               </div>
               <div>
-                <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Your JobFlow email inbox</Label>
-                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                  <span className="text-[13px] font-mono text-[#4F8CFF]">
-                    jobs+{`{your-id}`}@ingest.jobflow.ai
-                  </span>
-                  <Badge className="bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/20 text-[10px] ml-auto">
-                    Coming soon
-                  </Badge>
+                <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Connection mode</Label>
+                <div className="rounded-lg bg-[#0B0F14] border border-[#1F2937] p-2.5 text-[12px] text-[#9CA3AF]">
+                  Gmail OAuth with <span className="text-white">gmail.readonly</span> scope only.
                 </div>
               </div>
               <div>
                 <Label className="text-[12px] text-[#9CA3AF] mb-2 block">Supported senders (auto-parsed)</Label>
                 <div className="flex flex-wrap gap-1.5 text-[11px]">
-                  {["LinkedIn Jobs", "Indeed", "ZipRecruiter", "Glassdoor", "Monster"].map((s) => (
+                  {["LinkedIn Jobs", "LinkedIn alerts", "Hiring digest emails"].map((s) => (
                     <span key={s} className="px-2 py-0.5 rounded bg-[#1F2937] text-[#6B7280] border border-[#374151]">{s}</span>
                   ))}
+                </div>
+              </div>
+              <div>
+                <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Sync schedule</Label>
+                <div className="rounded-lg bg-[#0B0F14] border border-[#1F2937] p-2.5 text-[12px] text-[#9CA3AF]">
+                  Automatic sync every 15 minutes, plus manual Sync Now from Settings.
                 </div>
               </div>
             </div>

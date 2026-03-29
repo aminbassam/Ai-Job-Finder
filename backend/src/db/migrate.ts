@@ -27,6 +27,11 @@ const migrations = [
   { name: "009_global_ai_settings",      file: join(ROOT, "db/migrations/009_global_ai_settings.sql") },
   { name: "010_resume_rich_formatting",  file: join(ROOT, "db/migrations/010_resume_rich_formatting.sql") },
   { name: "011_multi_profile_master_resume", file: join(ROOT, "db/migrations/011_multi_profile_master_resume.sql") },
+  { name: "012_master_resume_profile_status", file: join(ROOT, "db/migrations/012_master_resume_profile_status.sql") },
+  { name: "013_legacy_resume_ai_source", file: join(ROOT, "db/migrations/013_legacy_resume_ai_source.sql") },
+  { name: "014_master_resume_use_for_ai", file: join(ROOT, "db/migrations/014_master_resume_use_for_ai.sql") },
+  { name: "015_master_resume_education", file: join(ROOT, "db/migrations/015_master_resume_education.sql") },
+  { name: "016_gmail_linkedin_ingestion", file: join(ROOT, "db/migrations/016_gmail_linkedin_ingestion.sql") },
 ];
 
 function splitSql(sql: string): string[] {

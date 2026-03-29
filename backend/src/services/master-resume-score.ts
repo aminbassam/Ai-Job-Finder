@@ -30,6 +30,13 @@ interface SkillsLike {
   certifications?: string[] | null;
 }
 
+interface EducationLike {
+  school?: string | null;
+  degree?: string | null;
+  fieldOfStudy?: string | null;
+  notes?: string | null;
+}
+
 interface LeadershipLike {
   teamSize?: number | null;
   scope?: string | null;
@@ -44,6 +51,7 @@ export interface ScoreResumeInput {
   experienceYears?: number | null;
   experiences: ExperienceLike[];
   skills: SkillsLike;
+  education?: EducationLike[] | null;
   projects: ProjectLike[];
   leadership?: LeadershipLike | null;
   jobTitle?: string | null;
@@ -143,6 +151,15 @@ function profileCorpus(input: ScoreResumeInput): string {
     ])
     .join(" ");
 
+  const educationText = (input.education ?? [])
+    .flatMap((education) => [
+      education.school ?? "",
+      education.degree ?? "",
+      education.fieldOfStudy ?? "",
+      education.notes ?? "",
+    ])
+    .join(" ");
+
   return [
     input.name,
     input.summary ?? "",
@@ -153,6 +170,7 @@ function profileCorpus(input: ScoreResumeInput): string {
     ...(input.skills.tools ?? []),
     ...(input.skills.soft ?? []),
     ...(input.skills.certifications ?? []),
+    educationText,
     projectText,
     input.leadership?.scope ?? "",
     ...(input.leadership?.stakeholders ?? []),
@@ -195,6 +213,7 @@ export function scoreMasterResume(input: ScoreResumeInput): ScoreResumeResult {
     input.experiences.length > 0,
     bullets.length >= 3,
     ((input.skills.core?.length ?? 0) + (input.skills.tools?.length ?? 0)) >= 5,
+    (input.education?.length ?? 0) > 0,
     input.projects.length > 0,
     Boolean(input.leadership && (input.leadership.scope || input.leadership.teamSize || (input.leadership.stakeholders?.length ?? 0) > 0)),
   ];
@@ -224,7 +243,7 @@ export function scoreMasterResume(input: ScoreResumeInput): ScoreResumeResult {
     suggestions.push("Rewrite more experience bullets with measurable impact, business outcomes, or delivery metrics.");
   }
   if (completenessScore < 80) {
-    suggestions.push("Fill missing structured sections such as summary, projects, certifications, or leadership scope.");
+    suggestions.push("Fill missing structured sections such as summary, education, projects, certifications, or leadership scope.");
   }
   if (mqScore < 70 && missingSkills.length > 0) {
     suggestions.push(`Address minimum qualification gaps around ${missingSkills.slice(0, 5).join(", ")} before tailoring for this job.`);
