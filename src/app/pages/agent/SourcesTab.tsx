@@ -227,13 +227,70 @@ export function SourcesTab() {
         <div className="flex items-start gap-3">
           <Info className="h-4 w-4 text-[#4F8CFF] mt-0.5 shrink-0" />
           <div className="text-[12px] text-[#9CA3AF] space-y-1">
+            <p><span className="text-[#10B981] font-medium">Free APIs</span>: Remotive and Arbeitnow are enabled by default — no key needed, start discovering jobs immediately.</p>
             <p><span className="text-[#10B981] font-medium">Lane 1 — Autonomous connectors</span>: Google search, Built In Austin, plus Greenhouse, Lever, and Ashby company boards for continuous discovery.</p>
-            <p><span className="text-[#4F8CFF] font-medium">Lane 2 — Official APIs</span>: Upwork GraphQL with your OAuth token for structured contract work.</p>
+            <p><span className="text-[#4F8CFF] font-medium">Lane 2 — Official APIs</span>: USAJobs (federal positions), ZipRecruiter (free key, millions of US jobs), and Upwork for contract work.</p>
             <p><span className="text-[#F59E0B] font-medium">Lane 3 — Browser extension</span>: manual save from LinkedIn, Indeed, and any job page you visit.</p>
             <p><span className="text-[#6366F1] font-medium">Lane 4 — Email ingestion</span>: parse job alert emails from LinkedIn, Indeed, ZipRecruiter automatically.</p>
           </div>
         </div>
       </Card>
+
+      {/* ── Free APIs (no key required) ── */}
+      <div>
+        <h4 className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">
+          Free Job APIs — No Key Required
+        </h4>
+        <div className="space-y-3">
+          <ConnectorCard
+            lane={1} laneLabel="Free API"
+            connector="remotive"
+            title="Remotive"
+            description="100% remote jobs API — free, no key required. Returns real-time remote jobs matching your search titles."
+            color="#10B981"
+            logoChar="R"
+            cfg={cfgMap["remotive"]}
+            onSave={(a, c) => save("remotive", a, c)}
+          >
+            {() => (
+              <div className="rounded-lg border border-[#10B981]/20 bg-[#10B981]/5 px-3 py-2.5 text-[12px] text-[#9CA3AF]">
+                No configuration needed. Enable the toggle and save to start fetching remote jobs.
+                Jobs are matched by your profile's target job titles automatically.
+              </div>
+            )}
+          </ConnectorCard>
+
+          <ConnectorCard
+            lane={1} laneLabel="Free API"
+            connector="arbeitnow"
+            title="Arbeitnow"
+            description="International job board with remote & on-site roles — free, no key required."
+            color="#6366F1"
+            logoChar="A"
+            cfg={cfgMap["arbeitnow"]}
+            onSave={(a, c) => save("arbeitnow", a, c)}
+          >
+            {(config, setConfig) => (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-[#6366F1]/20 bg-[#6366F1]/5 px-3 py-2.5 text-[12px] text-[#9CA3AF]">
+                  No API key needed. Fetches jobs from the public Arbeitnow job board, filtered by your search profile's titles and remote preference.
+                </div>
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Max pages per run</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={String((config.maxPages as number) ?? 3)}
+                    onChange={(e) => setConfig({ ...config, maxPages: Number(e.target.value) })}
+                    className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] h-9 text-[13px]"
+                  />
+                </div>
+              </div>
+            )}
+          </ConnectorCard>
+        </div>
+      </div>
 
       {/* ── Lane 1: ATS Connectors ── */}
       <div>
@@ -499,6 +556,171 @@ export function SourcesTab() {
         <h4 className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider mb-3">
           Lane 2 — Official APIs
         </h4>
+        <div className="space-y-3">
+        <ConnectorCard
+          lane={2} laneLabel="Official API"
+          connector="usajobs"
+          title="USAJobs"
+          description="Official US federal government jobs API — searches all civilian federal positions. Free API key required."
+          color="#1A4480"
+          logoChar="USA"
+          cfg={cfgMap["usajobs"]}
+          onSave={(a, c) => save("usajobs", a, c)}
+        >
+          {(config, setConfig) => (
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 text-[12px] text-[#9CA3AF] bg-[#111827] border border-[#1F2937] rounded-lg p-3">
+                <Info className="h-3.5 w-3.5 mt-0.5 text-[#4F8CFF] shrink-0" />
+                <span>
+                  Register for a free API key at{" "}
+                  <a
+                    href="https://developer.usajobs.gov/tutorials/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#4F8CFF] underline inline-flex items-center gap-1"
+                  >
+                    developer.usajobs.gov <ExternalLink className="h-3 w-3" />
+                  </a>
+                  . Both your registered email and API key are required below.
+                </span>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Registered Email (User-Agent)</Label>
+                  <Input
+                    type="email"
+                    value={(config.email as string) ?? ""}
+                    onChange={(e) => setConfig({ ...config, email: e.target.value })}
+                    placeholder="you@example.com"
+                    className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] h-9 text-[13px]"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">API Key</Label>
+                  <Input
+                    type="password"
+                    value={(config.apiKey as string) ?? ""}
+                    onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
+                    placeholder="Your USAJobs API key…"
+                    className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] font-mono h-9 text-[13px]"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Results per page</Label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={500}
+                    value={String((config.resultsPerPage as number) ?? 25)}
+                    onChange={(e) => setConfig({ ...config, resultsPerPage: Number(e.target.value) })}
+                    className="bg-[#0B0F14] border-[#1F2937] text-white h-9 text-[13px]"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Max pages per run</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={String((config.maxPages as number) ?? 3)}
+                    onChange={(e) => setConfig({ ...config, maxPages: Number(e.target.value) })}
+                    className="bg-[#0B0F14] border-[#1F2937] text-white h-9 text-[13px]"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Posted within (days)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={String((config.daysPosted as number) ?? 30)}
+                    onChange={(e) => setConfig({ ...config, daysPosted: Number(e.target.value) })}
+                    className="bg-[#0B0F14] border-[#1F2937] text-white h-9 text-[13px]"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </ConnectorCard>
+
+        <ConnectorCard
+          lane={2} laneLabel="Official API"
+          connector="ziprecruiter"
+          title="ZipRecruiter"
+          description="Official Job Seeker API — searches millions of US jobs by title, location, and salary. Requires a free API key."
+          color="#FF6B35"
+          logoChar="Z"
+          cfg={cfgMap["ziprecruiter"]}
+          onSave={(a, c) => save("ziprecruiter", a, c)}
+        >
+          {(config, setConfig) => (
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 text-[12px] text-[#9CA3AF] bg-[#111827] border border-[#1F2937] rounded-lg p-3">
+                <Info className="h-3.5 w-3.5 mt-0.5 text-[#4F8CFF] shrink-0" />
+                <span>
+                  Get a free API key at{" "}
+                  <a
+                    href="https://www.ziprecruiter.com/partner"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#4F8CFF] underline inline-flex items-center gap-1"
+                  >
+                    ziprecruiter.com/partner <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {" "}— select <span className="text-white font-medium">Job Seeker</span> as partner type.
+                </span>
+              </div>
+              <div>
+                <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">API Key</Label>
+                <Input
+                  type="password"
+                  value={(config.apiKey as string) ?? ""}
+                  onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
+                  placeholder="Your ZipRecruiter API key…"
+                  className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] font-mono"
+                />
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Results per page</Label>
+                  <Input
+                    type="number"
+                    min={10}
+                    max={100}
+                    value={String((config.jobsPerPage as number) ?? 50)}
+                    onChange={(e) => setConfig({ ...config, jobsPerPage: Number(e.target.value) })}
+                    className="bg-[#0B0F14] border-[#1F2937] text-white h-9 text-[13px]"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Max pages per run</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={String((config.maxPages as number) ?? 3)}
+                    onChange={(e) => setConfig({ ...config, maxPages: Number(e.target.value) })}
+                    className="bg-[#0B0F14] border-[#1F2937] text-white h-9 text-[13px]"
+                  />
+                </div>
+                <div>
+                  <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Radius (miles)</Label>
+                  <Input
+                    type="number"
+                    min={5}
+                    max={100}
+                    value={String((config.radiusMiles as number) ?? 25)}
+                    onChange={(e) => setConfig({ ...config, radiusMiles: Number(e.target.value) })}
+                    className="bg-[#0B0F14] border-[#1F2937] text-white h-9 text-[13px]"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </ConnectorCard>
+
         <ConnectorCard
           lane={2} laneLabel="Official API"
           connector="upwork"
@@ -539,6 +761,7 @@ export function SourcesTab() {
             </div>
           )}
         </ConnectorCard>
+        </div>
       </div>
 
       {/* ── Lane 3: Extension ── */}

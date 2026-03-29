@@ -72,6 +72,10 @@ Developer onboarding:
       greenhouse.ts            ← Greenhouse public board API (Lane 1)
       lever.ts                 ← Lever public postings API (Lane 1)
       ats-feed.ts              ← Ashby public board API (Lane 1)
+      remotive.ts              ← Remotive remote jobs API (free, no key)
+      arbeitnow.ts             ← Arbeitnow job board API (free, no key)
+      ziprecruiter.ts          ← ZipRecruiter official Partner API (key required)
+      usajobs.ts               ← USAJobs federal jobs API (key required)
       upwork.ts                ← Upwork GraphQL API with OAuth2 (Lane 2)
     utils/email.ts             ← nodemailer SMTP + console fallback
     utils/encryption.ts        ← AES-256-GCM encrypt/decrypt for AI provider keys
@@ -89,6 +93,7 @@ Developer onboarding:
     010_resume_rich_formatting.sql ← rich resume HTML + formatting settings
     011_multi_profile_master_resume.sql ← structured multi-profile master resume system
     016_gmail_linkedin_ingestion.sql ← Gmail OAuth + synced LinkedIn email jobs
+    017_profile_activity_logs.sql ← per-profile action timeline (create/run/pause/cancel)
 
 /docker-compose.yml            ← PostgreSQL 16 container
 ```
@@ -234,18 +239,36 @@ Fetch from connectors → Filter excluded companies → Score (0-100)
 
 | Lane | Connector | Auth | Notes |
 |------|-----------|------|-------|
+| **Lane 1** — Free APIs (default) | Remotive | None | Remote jobs API; category-based fetch + client-side title filter |
+| **Lane 1** — Free APIs (default) | Arbeitnow | None | EU/global job board API; paginated, respects remote filter |
 | **Lane 1** — Autonomous ATS | Google | None | Best-effort public job discovery + metadata enrichment |
 | **Lane 1** — Autonomous ATS | Built In Austin | None | Playwright crawler with pagination + detail enrichment |
 | **Lane 1** — Autonomous ATS | Greenhouse | None | Public board API — provide company slugs |
 | **Lane 1** — Autonomous ATS | Lever | None | Public postings API — provide company slugs |
 | **Lane 1** — Autonomous ATS | Ashby | None | Public board API — provide company + slug pairs |
+| **Lane 2** — Official API | ZipRecruiter | API key | Official Partner API; fan-out across job titles × locations |
+| **Lane 2** — Official API | USAJobs | Email + API key | US federal jobs via `data.usajobs.gov`; public positions only |
 | **Lane 2** — Official API | Upwork | OAuth2 token | GraphQL search — contract/freelance work |
 | **Lane 3** — Browser Extension | LinkedIn, Indeed, any page | Extension | One-click save (coming soon) |
 | **Lane 4** — Email Ingestion | LinkedIn alerts via Gmail | Gmail OAuth | Reads LinkedIn alert emails, imports jobs, and scores matches automatically |
 
+#### Profile Activity Log
+Each profile card shows a collapsible timeline of every action taken:
+- Profile created / updated / paused / resumed / deleted
+- Run started / completed (with job counts) / failed / cancelled
+- Timestamps with relative time display
+
+#### Run Lifecycle (per profile)
+- Click **Run** → button swaps to **Stop**, an "In Progress" badge appears, and the app polls `GET /api/agent/runs/:runId` every 2 seconds
+- On completion: shows jobs found + strong match summary
+- Click **Stop** → cancels the in-flight run via `POST /api/agent/runs/:runId/cancel`
+
+#### AI Scoring in the Pipeline
+All jobs discovered by search profiles are inserted as `match_tier='new'` and immediately queued for AI scoring using the same `scoreJobWithAi` function used for manual imports. Every pipeline job gets the full breakdown (skillsMatch / experienceMatch / roleAlignment / locationSalaryFit) and appears in the Job Board with complete AI analysis.
+
 #### Results Inbox
 - Filter by tier (Strong / Maybe / Weak) and status (New / Saved / Applied)
-- AI score ring with score breakdown (title / keywords / location / salary)
+- AI score ring with full score breakdown (skills / experience / role / location-salary)
 - Expandable job description and requirements
 - Save · Mark applied · Dismiss — all with live status updates
 - Load more pagination
@@ -260,6 +283,19 @@ Fetch from connectors → Filter excluded companies → Score (0-100)
 - Per-run: jobs found, new jobs, strong matches, duration, errors
 
 ---
+
+### Job Board (`/jobs`)
+Unified workspace for reviewing all matched and imported jobs.
+
+- **Grid view** — card layout with score ring, tier badge, and quick actions
+- **List view** — compact table with bulk selection:
+  - Select All checkbox (with indeterminate state when partially selected)
+  - Per-row checkboxes; selected rows highlighted
+  - Bulk action toolbar: "X selected · Delete Selected · Clear"
+  - Bulk delete removes selected jobs from the database with optimistic UI
+- AI analysis panel per job: score breakdown bars, strengths, weaknesses, keywords to mirror
+- Resume generation per job: linked tailored resume or generate button
+- Tabs: All · Strong · Maybe · New · Saved · Applied
 
 ### Resume (`/resume`)
 The Resume area is now the **Master Resume** hub.
@@ -385,13 +421,20 @@ Requires `is_admin = true`.
 | POST | `/api/agent/profiles` | Create search profile |
 | PUT | `/api/agent/profiles/:id` | Update search profile |
 | DELETE | `/api/agent/profiles/:id` | Delete search profile |
-| POST | `/api/agent/profiles/:id/run` | Trigger manual run (async, returns runId) |
+| POST | `/api/agent/profiles/:id/run` | Trigger manual run (async, returns `{ runId }`) |
+| GET | `/api/agent/profiles/:id/logs` | Activity log timeline for a profile |
 | GET | `/api/agent/connectors` | List connector configurations |
 | PUT | `/api/agent/connectors/:connector` | Save connector config (slugs, tokens) |
 | GET | `/api/agent/results` | Paginated match results (`?tier=strong&status=new`) |
+| GET | `/api/agent/results/:id` | Single match detail |
 | PATCH | `/api/agent/results/:id/status` | Update match status (new/viewed/saved/applied/dismissed) |
+| DELETE | `/api/agent/results/:id` | Delete a single match |
+| DELETE | `/api/agent/results` | Bulk delete matches (`{ ids: string[] }` body, max 500) |
+| POST | `/api/agent/results/:id/generate-resume` | Generate tailored resume for a match |
 | POST | `/api/agent/import` | Manual job import (URL or raw fields) |
 | GET | `/api/agent/runs` | Recent agent run history (last 50) |
+| GET | `/api/agent/runs/:runId` | Poll a specific run's status |
+| POST | `/api/agent/runs/:runId/cancel` | Cancel an in-progress run |
 
 ### Jobs
 | Method | Path | Description |
@@ -461,6 +504,7 @@ Migrations in `db/migrations/` apply automatically on every backend startup (ide
 | `job_matches` | Pipeline output — normalized, scored, tiered jobs from all sources |
 | `connector_configs` | Per-user connector settings (slugs, tokens, last sync) |
 | `agent_runs` | Audit log of every scheduled and manual agent run |
+| `profile_activity_logs` | Per-profile action timeline (create/update/pause/run/cancel/complete) |
 | `jobs` + `companies` | Job catalog |
 | `user_job_states` + `job_score_runs` | User-specific job scores |
 | `documents` + `document_versions` | Resume vault |
@@ -542,16 +586,18 @@ The job agent scheduler starts automatically with the server process — no sepa
 | Status | Feature |
 |--------|---------|
 | ✅ | Autonomous job agent with scheduler |
-| ✅ | 4-lane connector model (Greenhouse, Lever, Ashby, Upwork) |
-| ✅ | AI scoring pipeline (rule-based, 0-100) |
-| ✅ | Search profiles with per-profile schedule |
+| ✅ | Multi-lane connector model (Greenhouse, Lever, Ashby, Upwork, Remotive, Arbeitnow, ZipRecruiter, USAJobs) |
+| ✅ | Free default sources — Remotive + Arbeitnow work out of the box with no API key |
+| ✅ | LLM-based AI scoring pipeline (0-100) with full breakdown per job |
+| ✅ | Search profiles with per-profile schedule, run status, Stop button, activity log |
+| ✅ | Pipeline → Job Board: all agent-found jobs AI-scored and visible in Job Board |
 | ✅ | Results inbox with tier/status filtering |
+| ✅ | Job Board list view with bulk select + bulk delete |
 | ✅ | Manual import (URL + form) |
 | ✅ | AI resume engine config (6 sections + readiness score) |
 | ✅ | AES-256-GCM encrypted AI provider keys |
+| ✅ | Gmail LinkedIn alert email ingestion (Lane 4) |
+| ✅ | Auto-generated tailored resume for strong matches |
 | 🔜 | Browser extension (Lane 3 — LinkedIn, Indeed, any page) |
-| 🔜 | Email ingestion (Lane 4 — job alert emails) |
-| 🔜 | LLM-based scoring via connected AI provider |
-| 🔜 | Auto-generated tailored resume for strong matches |
 | 🔜 | Push / email notifications for new strong matches |
 | 🔜 | Upwork OAuth2 flow in the UI |

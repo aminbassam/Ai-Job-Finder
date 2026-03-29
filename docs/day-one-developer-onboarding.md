@@ -335,6 +335,10 @@ docker-compose down -v
 
 - Auth is real and API-backed. The frontend no longer uses mock auth.
 - The Job Agent is implemented end to end and depends on DB-backed profiles, connector configs, runs, and matches.
+- **Free default sources**: Remotive and Arbeitnow are enabled by default — no API key required. New users get job results immediately.
+- **Paid sources**: ZipRecruiter (Partner API key) and USAJobs (email + API key) are configured per-user in the Sources tab.
+- **AI scoring in the pipeline**: every job found by a search profile is AI-scored with the same `scoreJobWithAi` function used for manual imports. Jobs enter the Job Board with a full breakdown (skills / experience / role / location-salary).
+- **Profile activity logs**: every action on a search profile (create, update, pause, resume, run, cancel, complete, delete) is recorded in `profile_activity_logs` and shown in a collapsible timeline on each profile card.
 - AI provider keys are validated and then encrypted before storage.
 - The backend starts the scheduler automatically, so background job-agent activity is part of normal local startup.
 

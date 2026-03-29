@@ -26,6 +26,7 @@ import {
   setMatchStatus,
   generateResumeWithSelection,
   deleteMatch,
+  bulkDeleteMatches,
   type JobMatch,
 } from "../services/agent.service";
 import { applicationsService } from "../services/applications.service";
@@ -740,6 +741,8 @@ function JobBoardItem({
 
 function JobBoardTableRow({
   job,
+  isSelected,
+  onToggleSelect,
   onStatusChange,
   onDelete,
   onApply,
@@ -747,6 +750,8 @@ function JobBoardTableRow({
   onOpenResume,
 }: {
   job: JobMatch;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
   onStatusChange: (id: string, status: JobMatch["status"]) => void;
   onDelete: (id: string) => Promise<void>;
   onApply: (id: string) => Promise<void>;
@@ -1171,7 +1176,15 @@ function JobBoardTableRow({
 
   return (
     <>
-      <TableRow className={`border-[#1F2937] ${dismissed ? "opacity-40" : "hover:bg-[#0B0F14]"}`}>
+      <TableRow className={`border-[#1F2937] ${dismissed ? "opacity-40" : "hover:bg-[#0B0F14]"} ${isSelected ? "bg-[#4F8CFF]/5" : ""}`}>
+        <TableCell className="w-10 pl-4 align-top">
+          <input
+            type="checkbox"
+            checked={isSelected ?? false}
+            onChange={() => onToggleSelect?.(job.id)}
+            className="mt-1 h-4 w-4 cursor-pointer rounded border-[#374151] accent-[#4F8CFF]"
+          />
+        </TableCell>
         <TableCell className="max-w-[420px] whitespace-normal align-top">
           <div className="space-y-2">
             <div>
@@ -1320,7 +1333,7 @@ function JobBoardTableRow({
 
       {isExpanded && (
         <TableRow className="border-[#1F2937] bg-[#0B0F14] hover:bg-[#0B0F14]">
-          <TableCell colSpan={7} className="whitespace-normal p-4">
+          <TableCell colSpan={8} className="whitespace-normal p-4">
             <div className="space-y-4">
               {resumeBlock}
 
@@ -1412,6 +1425,7 @@ export function JobBoard() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
   const [viewingResume, setViewingResume] = useState<DocumentPreviewRef | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const hasUnscored = jobs.some((j) => j.matchTier === "new" && !j.aiScore && !j.scoreBreakdown?.error);
@@ -1469,6 +1483,7 @@ export function JobBoard() {
   }, [refreshCounts]);
 
   useEffect(() => {
+    setSelectedIds(new Set());
     setOffset(0);
     void fetchJobs(true, 0);
   }, [tab]);
@@ -1560,6 +1575,33 @@ export function JobBoard() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const confirmed = window.confirm(
+      `Delete ${selectedIds.size} job${selectedIds.size > 1 ? "s" : ""} from your Job Board?`
+    );
+    if (!confirmed) return;
+    const ids = Array.from(selectedIds);
+    setJobs((prev) => prev.filter((j) => !selectedIds.has(j.id)));
+    setTotal((prev) => Math.max(0, prev - ids.length));
+    setSelectedIds(new Set());
+    try {
+      await bulkDeleteMatches(ids);
+      await refreshCounts();
+    } catch {
+      void fetchJobs(true, 0);
+    }
+  };
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const handleResumeLinked = (id: string, resume: NonNullable<JobMatch["linkedResume"]>) => {
     setJobs((prev) =>
       prev.map((job) =>
@@ -1580,6 +1622,24 @@ export function JobBoard() {
   };
 
   const visibleJobs = jobs.filter((job) => jobMatchesTab(job, tab));
+  const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every((j) => selectedIds.has(j.id));
+  const someVisibleSelected = visibleJobs.some((j) => selectedIds.has(j.id));
+
+  const handleToggleAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        visibleJobs.forEach((j) => next.delete(j.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        visibleJobs.forEach((j) => next.add(j.id));
+        return next;
+      });
+    }
+  };
 
   return (
     <div className="p-8">
@@ -1705,33 +1765,67 @@ export function JobBoard() {
               ))}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-[#1F2937] bg-[#111827]">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-[#1F2937] hover:bg-transparent">
-                    <TableHead className="h-12 text-[#9CA3AF]">Job</TableHead>
-                    <TableHead className="h-12 text-[#9CA3AF]">Score</TableHead>
-                    <TableHead className="h-12 text-[#9CA3AF]">Match</TableHead>
-                    <TableHead className="h-12 text-[#9CA3AF]">Source</TableHead>
-                    <TableHead className="h-12 text-[#9CA3AF]">Added</TableHead>
-                    <TableHead className="h-12 text-[#9CA3AF]">Resume</TableHead>
-                    <TableHead className="h-12 text-[#9CA3AF]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleJobs.map((job) => (
-                    <JobBoardTableRow
-                      key={job.id}
-                      job={job}
-                      onStatusChange={handleStatusChange}
-                      onDelete={handleDelete}
-                      onApply={handleApply}
-                      onResumeLinked={handleResumeLinked}
-                      onOpenResume={setViewingResume}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="space-y-3">
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-3 rounded-lg border border-[#374151] bg-[#1F2937] px-4 py-2.5">
+                  <span className="text-[13px] text-[#D1D5DB]">
+                    {selectedIds.size} job{selectedIds.size > 1 ? "s" : ""} selected
+                  </span>
+                  <button
+                    onClick={() => void handleBulkDelete()}
+                    className="flex items-center gap-1.5 rounded-lg border border-[#EF4444]/30 bg-[#EF4444]/10 px-3 py-1.5 text-[12px] font-medium text-[#EF4444] transition-all hover:bg-[#EF4444]/20"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete Selected
+                  </button>
+                  <button
+                    onClick={() => setSelectedIds(new Set())}
+                    className="ml-auto text-[12px] text-[#6B7280] transition-colors hover:text-[#9CA3AF]"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+
+              <div className="overflow-hidden rounded-xl border border-[#1F2937] bg-[#111827]">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-[#1F2937] hover:bg-transparent">
+                      <TableHead className="h-12 w-10 pl-4">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleSelected}
+                          ref={(el) => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
+                          onChange={handleToggleAll}
+                          className="h-4 w-4 cursor-pointer rounded border-[#374151] accent-[#4F8CFF]"
+                        />
+                      </TableHead>
+                      <TableHead className="h-12 text-[#9CA3AF]">Job</TableHead>
+                      <TableHead className="h-12 text-[#9CA3AF]">Score</TableHead>
+                      <TableHead className="h-12 text-[#9CA3AF]">Match</TableHead>
+                      <TableHead className="h-12 text-[#9CA3AF]">Source</TableHead>
+                      <TableHead className="h-12 text-[#9CA3AF]">Added</TableHead>
+                      <TableHead className="h-12 text-[#9CA3AF]">Resume</TableHead>
+                      <TableHead className="h-12 text-[#9CA3AF]">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {visibleJobs.map((job) => (
+                      <JobBoardTableRow
+                        key={job.id}
+                        job={job}
+                        isSelected={selectedIds.has(job.id)}
+                        onToggleSelect={handleToggleSelect}
+                        onStatusChange={handleStatusChange}
+                        onDelete={handleDelete}
+                        onApply={handleApply}
+                        onResumeLinked={handleResumeLinked}
+                        onOpenResume={setViewingResume}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
 

@@ -22,7 +22,27 @@ import { decrypt } from "../utils/encryption";
 const router = Router();
 router.use(requireAuth);
 
-const DEFAULT_SOURCES = ["greenhouse", "lever", "google"];
+const DEFAULT_SOURCES = ["remotive", "arbeitnow"];
+
+/* ─── Activity log helper ─────────────────────────────────────────────────── */
+
+async function logActivity(
+  userId: string,
+  profileId: string | null,
+  profileName: string,
+  action: string,
+  detail: Record<string, unknown> = {}
+): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO profile_activity_logs (user_id, profile_id, profile_name, action, detail)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, profileId, profileName, action, JSON.stringify(detail)]
+    );
+  } catch {
+    // Non-critical — never let logging break the main flow
+  }
+}
 const VALID_SCHEDULES = new Set(["6h", "daily", "weekdays", "custom", "manual"]);
 
 function isPlaceholderImportTitle(value: unknown): boolean {
@@ -259,7 +279,12 @@ router.post("/profiles", async (req, res) => {
         nextRun,
       ]
     );
-    res.status(201).json(toProfile(rows[0]));
+    const created = toProfile(rows[0]);
+    await logActivity(req.userId!, created.id as string, created.name as string, "created", {
+      sources: created.sources,
+      schedule: created.schedule,
+    });
+    res.status(201).json(created);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to create profile." });
@@ -407,7 +432,19 @@ router.put("/profiles/:id", async (req, res) => {
         resolvedNextRunAt,
       ]
     );
-    res.json(toProfile(rows[0]));
+    const updated = toProfile(rows[0]);
+    // Determine what kind of change this was
+    const isPauseResume = incomingIsActive !== null && Object.keys(b).length === 1 && Object.prototype.hasOwnProperty.call(b, "isActive");
+    if (isPauseResume) {
+      await logActivity(req.userId!, updated.id as string, updated.name as string,
+        resolvedIsActive ? "resumed" : "paused", {});
+    } else {
+      await logActivity(req.userId!, updated.id as string, updated.name as string, "updated", {
+        sources: updated.sources,
+        schedule: updated.schedule,
+      });
+    }
+    res.json(updated);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to update profile." });
@@ -416,10 +453,13 @@ router.put("/profiles/:id", async (req, res) => {
 
 // DELETE /api/agent/profiles/:id
 router.delete("/profiles/:id", async (req, res) => {
-  await pool.query(
-    `DELETE FROM search_profiles WHERE id = $1 AND user_id = $2`,
+  const { rows } = await pool.query(
+    `DELETE FROM search_profiles WHERE id = $1 AND user_id = $2 RETURNING name`,
     [req.params.id, req.userId]
   );
+  if (rows[0]) {
+    await logActivity(req.userId!, req.params.id, rows[0].name ?? "", "deleted", {});
+  }
   res.json({ ok: true });
 });
 
@@ -462,10 +502,21 @@ router.post("/profiles/:id/run", async (req, res) => {
       [req.userId, profile.id]
     );
 
+    await logActivity(req.userId!, profile.id, row.name ?? "", "run_started", {
+      runId: run.id, trigger: "manual", sources: profile.sources,
+    });
+
     // Run pipeline (async — return immediately with runId)
     setImmediate(async () => {
       try {
         const result = await runPipeline(profile);
+
+        // Check if cancelled before writing results
+        const { rows: [runRow] } = await pool.query<{ status: string }>(
+          `SELECT status FROM agent_runs WHERE id = $1`, [run.id]
+        );
+        if (runRow?.status === "cancelled") return;
+
         await pool.query(
           `UPDATE agent_runs SET status='completed', jobs_found=$2, jobs_new=$3,
            jobs_scored=$4, strong_matches=$5, completed_at=now() WHERE id=$1`,
@@ -477,11 +528,68 @@ router.post("/profiles/:id/run", async (req, res) => {
            WHERE id = $1`,
           [profile.id, nextRunAt(profile.schedule, profile.scheduleIntervalMinutes, profile.schedule !== "manual")]
         );
+        await logActivity(req.userId!, profile.id, row.name ?? "", "run_completed", {
+          runId: run.id, jobsFound: result.found, jobsNew: result.newJobs,
+          jobsScored: result.scored, strongMatches: result.strongMatches,
+        });
+
+        // AI-score each new job sequentially (rate-limit friendly).
+        // Same flow as manual import — jobs start as match_tier='new' and get
+        // updated to their real tier once OpenAI responds.
+        for (const jobId of result.newJobIds) {
+          // Stop scoring if run was cancelled
+          const { rows: [check] } = await pool.query<{ status: string }>(
+            `SELECT status FROM agent_runs WHERE id = $1`, [run.id]
+          );
+          if (check?.status === "cancelled") break;
+
+          try {
+            const { rows: [jobRow] } = await pool.query(
+              `SELECT * FROM job_matches WHERE id = $1`, [jobId]
+            );
+            if (!jobRow) continue;
+
+            const outcome = await scoreJobWithAi(profile.userId, {
+              title:       jobRow.title,
+              company:     jobRow.company,
+              description: jobRow.description,
+              requirements: jobRow.requirements,
+              location:    jobRow.location,
+              remote:      jobRow.remote,
+              jobType:     jobRow.job_type,
+              salaryMin:   jobRow.salary_min,
+              salaryMax:   jobRow.salary_max,
+            });
+
+            if (outcome.ok) {
+              const r = outcome.result;
+              await pool.query(
+                `UPDATE job_matches
+                 SET ai_score=$2, ai_summary=$3, score_breakdown=$4,
+                     match_tier=$5, scored_at=now()
+                 WHERE id=$1`,
+                [jobId, r.score, r.summary, JSON.stringify(r.breakdown), r.tier]
+              );
+            } else {
+              await pool.query(
+                `UPDATE job_matches
+                 SET score_breakdown=$2, scored_at=now()
+                 WHERE id=$1`,
+                [jobId, JSON.stringify({ error: outcome.error.message })]
+              );
+            }
+          } catch {
+            // Skip individual job scoring failure — don't abort the loop
+          }
+        }
       } catch (err) {
         await pool.query(
           `UPDATE agent_runs SET status='failed', error=$2, completed_at=now() WHERE id=$1`,
           [run.id, (err as Error).message]
         ).catch(() => {});
+        await logActivity(req.userId!, profile.id, row.name ?? "", "run_failed", {
+          runId: run.id, error: (err as Error).message,
+        });
       }
     });
 
@@ -501,6 +609,27 @@ router.get("/connectors", async (req, res) => {
       `SELECT * FROM connector_configs WHERE user_id = $1 ORDER BY connector`,
       [req.userId]
     );
+
+    // Auto-seed free connectors as active defaults for new users
+    if (rows.length === 0) {
+      const freeDefaults = ["remotive", "arbeitnow"];
+      await Promise.all(
+        freeDefaults.map((connector) =>
+          pool.query(
+            `INSERT INTO connector_configs (user_id, connector, is_active, config)
+             VALUES ($1, $2, true, '{}')
+             ON CONFLICT (user_id, connector) DO NOTHING`,
+            [req.userId, connector]
+          )
+        )
+      );
+      const { rows: seeded } = await pool.query(
+        `SELECT * FROM connector_configs WHERE user_id = $1 ORDER BY connector`,
+        [req.userId]
+      );
+      return res.json(seeded.map(toConnector));
+    }
+
     res.json(rows.map(toConnector));
   } catch {
     res.status(500).json({ message: "Failed to load connectors." });
@@ -640,19 +769,38 @@ router.patch("/results/:id/status", async (req, res) => {
 router.delete("/results/:id", async (req, res) => {
   try {
     const { rowCount } = await pool.query(
-      `DELETE FROM job_matches
-       WHERE id = $1 AND user_id = $2`,
+      `DELETE FROM job_matches WHERE id = $1 AND user_id = $2`,
       [req.params.id, req.userId]
     );
-
-    if (!rowCount) {
-      return res.status(404).json({ message: "Job not found." });
-    }
-
+    if (!rowCount) return res.status(404).json({ message: "Job not found." });
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to delete job." });
+  }
+});
+
+// DELETE /api/agent/results  — bulk delete
+// Body: { ids: string[] }
+router.delete("/results", async (req, res) => {
+  const ids: unknown = req.body?.ids;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ message: "ids must be a non-empty array." });
+  }
+  // Cap at 500 to prevent accidental full-table wipes
+  const safeIds = (ids as unknown[]).slice(0, 500).filter((id) => typeof id === "string");
+  if (safeIds.length === 0) return res.status(400).json({ message: "No valid ids provided." });
+
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM job_matches
+       WHERE id = ANY($1::uuid[]) AND user_id = $2`,
+      [safeIds, req.userId]
+    );
+    res.json({ ok: true, deleted: rowCount ?? 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to delete jobs." });
   }
 });
 
@@ -1131,6 +1279,69 @@ router.get("/runs", async (req, res) => {
     res.json(rows.map(toRun));
   } catch {
     res.status(500).json({ message: "Failed to load runs." });
+  }
+});
+
+// GET /api/agent/runs/:runId — poll a single run's status
+router.get("/runs/:runId", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ar.*, sp.name AS profile_name
+       FROM agent_runs ar
+       LEFT JOIN search_profiles sp ON sp.id = ar.profile_id
+       WHERE ar.id = $1 AND ar.user_id = $2`,
+      [req.params.runId, req.userId]
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Run not found." });
+    res.json(toRun(rows[0]));
+  } catch {
+    res.status(500).json({ message: "Failed to load run." });
+  }
+});
+
+// POST /api/agent/runs/:runId/cancel — cancel a running job
+router.post("/runs/:runId/cancel", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE agent_runs SET status='cancelled', completed_at=now()
+       WHERE id = $1 AND user_id = $2 AND status = 'running'
+       RETURNING *, (SELECT name FROM search_profiles WHERE id = agent_runs.profile_id) AS profile_name`,
+      [req.params.runId, req.userId]
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Run not found or already finished." });
+    await logActivity(req.userId!, rows[0].profile_id, rows[0].profile_name ?? "", "run_cancelled", {
+      runId: rows[0].id,
+    });
+    res.json(toRun(rows[0]));
+  } catch {
+    res.status(500).json({ message: "Failed to cancel run." });
+  }
+});
+
+// GET /api/agent/profiles/:id/logs — activity log for a specific profile
+router.get("/profiles/:id/logs", async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string ?? "50"), 100);
+    const { rows } = await pool.query(
+      `SELECT id, profile_id, profile_name, action, detail, created_at
+       FROM profile_activity_logs
+       WHERE user_id = $1 AND (profile_id = $2 OR (profile_id IS NULL AND profile_name IN (
+         SELECT name FROM search_profiles WHERE id = $2
+       )))
+       ORDER BY created_at DESC
+       LIMIT $3`,
+      [req.userId, req.params.id, limit]
+    );
+    res.json(rows.map((r) => ({
+      id: r.id,
+      profileId: r.profile_id,
+      profileName: r.profile_name,
+      action: r.action,
+      detail: r.detail,
+      createdAt: r.created_at,
+    })));
+  } catch {
+    res.status(500).json({ message: "Failed to load logs." });
   }
 });
 

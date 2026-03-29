@@ -91,7 +91,7 @@ export interface AgentRun {
   profileId?: string;
   profileName?: string;
   trigger: "schedule" | "manual";
-  status: "running" | "completed" | "failed";
+  status: "running" | "completed" | "failed" | "cancelled";
   jobsFound: number;
   jobsNew: number;
   jobsScored: number;
@@ -99,6 +99,15 @@ export interface AgentRun {
   error?: string;
   startedAt: string;
   completedAt?: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  profileId: string | null;
+  profileName: string;
+  action: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
 }
 
 export type ProfileInput = Omit<SearchProfile, "id" | "createdAt" | "lastRunAt" | "nextRunAt" | "totalMatches" | "strongMatches">;
@@ -157,6 +166,9 @@ export const setMatchStatus = (id: string, status: JobMatch["status"]) =>
 export const deleteMatch = (id: string) =>
   api.delete<{ ok: boolean }>(`/agent/results/${id}`);
 
+export const bulkDeleteMatches = (ids: string[]) =>
+  api.delete<{ ok: boolean; deleted: number }>(`/agent/results`, { body: JSON.stringify({ ids }) });
+
 export const getResult = (id: string) =>
   api.get<JobMatch>(`/agent/results/${id}`);
 
@@ -180,6 +192,15 @@ export const importJob = (data: ImportPayload) =>
 
 export const getRuns = () =>
   api.get<AgentRun[]>("/agent/runs");
+
+export const getRunStatus = (runId: string) =>
+  api.get<AgentRun>(`/agent/runs/${runId}`);
+
+export const cancelRun = (runId: string) =>
+  api.post<AgentRun>(`/agent/runs/${runId}/cancel`, {});
+
+export const getProfileLogs = (profileId: string) =>
+  api.get<ActivityLog[]>(`/agent/profiles/${profileId}/logs`);
 
 /* ──────────────────── Resume generation ─────────────────────────────── */
 

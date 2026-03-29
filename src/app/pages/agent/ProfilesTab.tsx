@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Plus, Play, Pause, Pencil, Trash2, Clock, Zap,
   Target, AlertCircle, Loader2, ChevronDown, ChevronUp, RefreshCw,
+  Square, ScrollText, CheckCircle2, XCircle, Ban,
 } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -12,11 +13,16 @@ import { Badge } from "../../components/ui/badge";
 import { Slider } from "../../components/ui/slider";
 import { TagInput } from "../../components/ui/tag-input";
 import {
-  SearchProfile, ProfileInput, ConnectorConfig,
+  SearchProfile, ProfileInput, ConnectorConfig, ActivityLog,
   getProfiles, getConnectors, createProfile, updateProfile, deleteProfile, runProfile,
+  getRunStatus, cancelRun, getProfileLogs,
 } from "../../services/agent.service";
 
 const SOURCE_LABELS: Record<string, string> = {
+  remotive: "Remotive",
+  arbeitnow: "Arbeitnow",
+  ziprecruiter: "ZipRecruiter",
+  usajobs: "USAJobs",
   greenhouse: "Greenhouse",
   lever: "Lever",
   google: "Google",
@@ -444,18 +450,156 @@ function ProfileForm({
   );
 }
 
+/* ──────────────── Log helpers ──────────────────────────────── */
+function logActionLabel(action: string) {
+  switch (action) {
+    case "created":       return "Profile created";
+    case "updated":       return "Profile settings updated";
+    case "paused":        return "Profile paused";
+    case "resumed":       return "Profile resumed";
+    case "deleted":       return "Profile deleted";
+    case "run_started":   return "Run started";
+    case "run_completed": return "Run completed";
+    case "run_failed":    return "Run failed";
+    case "run_cancelled": return "Run cancelled";
+    default:              return action.replace(/_/g, " ");
+  }
+}
+
+function logActionIcon(action: string) {
+  switch (action) {
+    case "created":
+    case "updated":       return <CheckCircle2 className="h-3.5 w-3.5 text-[#4F8CFF]" />;
+    case "paused":        return <Pause className="h-3.5 w-3.5 text-[#F59E0B]" />;
+    case "resumed":       return <Play className="h-3.5 w-3.5 text-[#10B981]" />;
+    case "deleted":       return <Trash2 className="h-3.5 w-3.5 text-[#EF4444]" />;
+    case "run_started":   return <Loader2 className="h-3.5 w-3.5 text-[#4F8CFF] animate-spin" />;
+    case "run_completed": return <CheckCircle2 className="h-3.5 w-3.5 text-[#10B981]" />;
+    case "run_failed":    return <XCircle className="h-3.5 w-3.5 text-[#EF4444]" />;
+    case "run_cancelled": return <Ban className="h-3.5 w-3.5 text-[#6B7280]" />;
+    default:              return <CheckCircle2 className="h-3.5 w-3.5 text-[#6B7280]" />;
+  }
+}
+
+function logDetailLine(log: ActivityLog) {
+  const d = log.detail;
+  if (log.action === "run_completed") {
+    return `Found ${d.jobsFound ?? 0} jobs · ${d.jobsNew ?? 0} new · ${d.strongMatches ?? 0} strong`;
+  }
+  if (log.action === "run_failed") return String(d.error ?? "Unknown error");
+  if (log.action === "run_started") return `Sources: ${(d.sources as string[] | undefined)?.join(", ") ?? "—"}`;
+  if (log.action === "updated") {
+    const s = d.sources as string[] | undefined;
+    return s ? `Sources: ${s.join(", ")}` : "";
+  }
+  return "";
+}
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60_000);
+  if (m < 1)  return "Just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
 /* ──────────────── Profile Card ─────────────────────────────── */
 function ProfileCard({
-  profile, onEdit, onDelete, onToggle, onRun,
+  profile, onEdit, onDelete, onToggle, onRunComplete,
 }: {
   profile: SearchProfile;
   onEdit: () => void;
   onDelete: () => void;
   onToggle: () => void;
-  onRun: () => void;
+  onRunComplete: () => void;
 }) {
-  const [running, setRunning] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [runStatus, setRunStatus] = useState<string>("idle");
+  const [runResult, setRunResult] = useState<{ jobsFound: number; jobsNew: number; strongMatches: number } | null>(null);
   const [runError, setRunError] = useState("");
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [logs, setLogs] = useState<ActivityLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll run status while running
+  useEffect(() => {
+    if (!activeRunId) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const run = await getRunStatus(activeRunId);
+        setRunStatus(run.status);
+        if (run.status !== "running") {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          if (run.status === "completed") {
+            setRunResult({ jobsFound: run.jobsFound, jobsNew: run.jobsNew, strongMatches: run.strongMatches });
+            onRunComplete();
+          } else if (run.status === "failed") {
+            setRunError(run.error ?? "Run failed.");
+          }
+          setActiveRunId(null);
+          // Refresh logs after run finishes
+          if (logsOpen) loadLogs();
+        }
+      } catch {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        setActiveRunId(null);
+        setRunStatus("idle");
+      }
+    }, 2000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [activeRunId]);
+
+  async function handleRun() {
+    setRunError("");
+    setRunResult(null);
+    try {
+      const res = await runProfile(profile.id);
+      setActiveRunId(res.runId);
+      setRunStatus("running");
+      if (logsOpen) loadLogs();
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : "Run failed.");
+    }
+  }
+
+  async function handleStop() {
+    if (!activeRunId) return;
+    try {
+      await cancelRun(activeRunId);
+      clearInterval(pollRef.current!);
+      pollRef.current = null;
+      setActiveRunId(null);
+      setRunStatus("idle");
+      if (logsOpen) loadLogs();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function loadLogs() {
+    setLogsLoading(true);
+    try {
+      const data = await getProfileLogs(profile.id);
+      setLogs(data);
+    } catch {
+      // ignore
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  function toggleLogs() {
+    if (!logsOpen && logs.length === 0) loadLogs();
+    setLogsOpen((v) => !v);
+  }
+
+  const isRunning = runStatus === "running";
 
   const scheduleLabel =
     profile.schedule === "6h" ? "Every 6 h"
@@ -464,27 +608,19 @@ function ProfileCard({
     : profile.schedule === "weekdays" ? "Weekdays"
     : "Daily";
 
-  async function handleRun() {
-    setRunning(true);
-    setRunError("");
-    try {
-      await onRun();
-    } catch (err) {
-      setRunError(err instanceof Error ? err.message : "Run failed.");
-    } finally {
-      setRunning(false);
-    }
-  }
-
   return (
-    <Card className={`bg-[#111827] border-[#1F2937] p-5 transition-opacity ${profile.isActive ? "" : "opacity-60"}`}>
+    <Card className={`bg-[#111827] border-[#1F2937] p-5 transition-all ${profile.isActive ? "" : "opacity-60"} ${isRunning ? "border-[#4F8CFF]/40" : ""}`}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h3 className="text-[15px] font-semibold text-white truncate">{profile.name}</h3>
-            {profile.isActive
-              ? <Badge className="bg-[#10B981]/10 text-[#10B981] border-[#10B981]/20 text-[10px] shrink-0">Active</Badge>
-              : <Badge className="bg-[#374151] text-[#9CA3AF] border-[#4B5563] text-[10px] shrink-0">Paused</Badge>
+            {isRunning
+              ? <Badge className="bg-[#4F8CFF]/15 text-[#4F8CFF] border-[#4F8CFF]/30 text-[10px] shrink-0 flex items-center gap-1">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />In Progress
+                </Badge>
+              : profile.isActive
+                ? <Badge className="bg-[#10B981]/10 text-[#10B981] border-[#10B981]/20 text-[10px] shrink-0">Active</Badge>
+                : <Badge className="bg-[#374151] text-[#9CA3AF] border-[#4B5563] text-[10px] shrink-0">Paused</Badge>
             }
           </div>
           <div className="flex items-center gap-3 text-[11px] text-[#6B7280]">
@@ -494,12 +630,21 @@ function ProfileCard({
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <Button
-            variant="ghost" size="sm" onClick={handleRun} disabled={running} title="Run now"
-            className="h-8 w-8 p-0 text-[#6B7280] hover:text-[#4F8CFF] hover:bg-[#4F8CFF]/10"
-          >
-            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          </Button>
+          {isRunning ? (
+            <Button
+              variant="ghost" size="sm" onClick={handleStop} title="Stop run"
+              className="h-8 w-8 p-0 text-[#EF4444] hover:text-[#EF4444] hover:bg-[#EF4444]/10"
+            >
+              <Square className="h-4 w-4 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost" size="sm" onClick={handleRun} title="Run now"
+              className="h-8 w-8 p-0 text-[#6B7280] hover:text-[#4F8CFF] hover:bg-[#4F8CFF]/10"
+            >
+              <Play className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             variant="ghost" size="sm" onClick={onToggle}
             title={profile.isActive ? "Pause" : "Resume"}
@@ -521,6 +666,21 @@ function ProfileCard({
           </Button>
         </div>
       </div>
+
+      {/* Run progress banner */}
+      {isRunning && (
+        <div className="flex items-center gap-2 mb-3 p-2.5 rounded-lg bg-[#4F8CFF]/10 border border-[#4F8CFF]/20 text-[#4F8CFF] text-[12px]">
+          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+          Searching for jobs across {profile.sources.join(", ")}…
+        </div>
+      )}
+
+      {runResult && !isRunning && (
+        <div className="flex items-center gap-2 mb-3 p-2.5 rounded-lg bg-[#10B981]/10 border border-[#10B981]/20 text-[#10B981] text-[12px]">
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+          Found {runResult.jobsFound} jobs · {runResult.jobsNew} new · {runResult.strongMatches} strong match{runResult.strongMatches !== 1 ? "es" : ""}
+        </div>
+      )}
 
       {runError && (
         <div className="flex items-center gap-2 mb-3 p-2.5 rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/20 text-[#EF4444] text-[12px]">
@@ -546,21 +706,86 @@ function ProfileCard({
       <div className="flex items-center gap-4 pt-3 border-t border-[#1F2937]">
         <div>
           <p className="text-[11px] text-[#6B7280]">Total matches</p>
-          <p className="text-[16px] font-bold text-white">{profile.totalMatches ?? 0}</p>
+          {isRunning
+            ? <div className="h-5 w-8 rounded bg-[#1F2937] animate-pulse mt-0.5" />
+            : <p className="text-[16px] font-bold text-white">{profile.totalMatches ?? 0}</p>
+          }
         </div>
         <div>
           <p className="text-[11px] text-[#6B7280]">Strong fits</p>
-          <p className={`text-[16px] font-bold ${(profile.strongMatches ?? 0) > 0 ? "text-[#10B981]" : "text-[#6B7280]"}`}>
-            {profile.strongMatches ?? 0}
-          </p>
+          {isRunning
+            ? <div className="h-5 w-8 rounded bg-[#1F2937] animate-pulse mt-0.5" />
+            : <p className={`text-[16px] font-bold ${(profile.strongMatches ?? 0) > 0 ? "text-[#10B981]" : "text-[#6B7280]"}`}>
+                {profile.strongMatches ?? 0}
+              </p>
+          }
         </div>
         {profile.lastRunAt && (
           <div className="ml-auto text-right">
             <p className="text-[11px] text-[#6B7280]">Last run</p>
-            <p className="text-[11px] text-[#9CA3AF]">{new Date(profile.lastRunAt).toLocaleDateString()}</p>
+            <p className="text-[11px] text-[#9CA3AF]">{timeAgo(profile.lastRunAt)}</p>
           </div>
         )}
+        <button
+          type="button"
+          onClick={toggleLogs}
+          className={`flex items-center gap-1 text-[11px] transition-colors ${logsOpen ? "text-[#4F8CFF]" : "text-[#6B7280] hover:text-[#9CA3AF]"} ${profile.lastRunAt ? "" : "ml-auto"}`}
+        >
+          <ScrollText className="h-3.5 w-3.5" />
+          Logs
+          {logsOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </button>
       </div>
+
+      {/* Activity Log Panel */}
+      {logsOpen && (
+        <div className="mt-3 border-t border-[#1F2937] pt-3">
+          <p className="text-[11px] font-semibold text-[#6B7280] uppercase tracking-wider mb-2">Activity Log</p>
+          {logsLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-4 w-4 animate-spin text-[#4F8CFF]" />
+            </div>
+          ) : logs.length === 0 ? (
+            <p className="text-[12px] text-[#4B5563] text-center py-3">No activity yet.</p>
+          ) : (
+            <div className="space-y-0 max-h-64 overflow-y-auto pr-1">
+              {logs.map((log, i) => {
+                const detail = logDetailLine(log);
+                const isLast = i === logs.length - 1;
+                return (
+                  <div key={log.id} className="flex gap-2.5">
+                    {/* Timeline spine */}
+                    <div className="flex flex-col items-center shrink-0">
+                      <div className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#0B0F14] border border-[#1F2937]">
+                        {logActionIcon(log.action)}
+                      </div>
+                      {!isLast && <div className="w-px flex-1 bg-[#1F2937] my-0.5" />}
+                    </div>
+                    <div className="pb-3 flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-[12px] font-medium text-white">{logActionLabel(log.action)}</span>
+                        <span className="text-[10px] text-[#4B5563] shrink-0">{timeAgo(log.createdAt)}</span>
+                      </div>
+                      {detail && (
+                        <p className={`text-[11px] mt-0.5 ${log.action === "run_failed" ? "text-[#EF4444]" : "text-[#6B7280]"}`}>
+                          {detail}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={loadLogs}
+            className="mt-1 text-[11px] text-[#4B5563] hover:text-[#6B7280] flex items-center gap-1"
+          >
+            <RefreshCw className="h-2.5 w-2.5" />Refresh
+          </button>
+        </div>
+      )}
     </Card>
   );
 }
@@ -641,9 +866,10 @@ export function ProfilesTab() {
     }
   }
 
-  async function handleRun(id: string) {
-    await runProfile(id); // throws on error — caught in ProfileCard
-    setTimeout(load, 3000);
+  async function handleRunComplete(id: string) {
+    // Called by ProfileCard when a run finishes — refresh stats
+    const updated = await getProfiles();
+    setProfiles(updated);
   }
 
   /* Loading state */
@@ -796,7 +1022,7 @@ export function ProfilesTab() {
                 onEdit={() => setEditingId(p.id)}
                 onDelete={() => handleDelete(p.id)}
                 onToggle={() => handleToggle(p)}
-                onRun={() => handleRun(p.id)}
+                onRunComplete={() => handleRunComplete(p.id)}
               />
             )
           )}

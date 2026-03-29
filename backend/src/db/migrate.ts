@@ -32,6 +32,7 @@ const migrations = [
   { name: "014_master_resume_use_for_ai", file: join(ROOT, "db/migrations/014_master_resume_use_for_ai.sql") },
   { name: "015_master_resume_education", file: join(ROOT, "db/migrations/015_master_resume_education.sql") },
   { name: "016_gmail_linkedin_ingestion", file: join(ROOT, "db/migrations/016_gmail_linkedin_ingestion.sql") },
+  { name: "017_profile_activity_logs",   file: join(ROOT, "db/migrations/017_profile_activity_logs.sql") },
 ];
 
 function splitSql(sql: string): string[] {

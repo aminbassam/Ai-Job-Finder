@@ -22,6 +22,10 @@ import { upworkConnector } from "./connectors/upwork";
 import { atsFeedConnector } from "./connectors/ats-feed";
 import { googleConnector } from "./connectors/google";
 import { builtInAustinConnector } from "./connectors/builtinaustin";
+import { remotiveConnector } from "./connectors/remotive";
+import { arbeitnowConnector } from "./connectors/arbeitnow";
+import { zipRecruiterConnector } from "./connectors/ziprecruiter";
+import { usaJobsConnector } from "./connectors/usajobs";
 
 /* ─── Profile shape ─────────────────────────────────────────────────────── */
 
@@ -147,6 +151,7 @@ export interface PipelineResult {
   newJobs: number;
   scored: number;
   strongMatches: number;
+  newJobIds: string[];  // IDs of newly inserted jobs — caller can AI-score these
 }
 
 export async function runPipeline(profile: PipelineProfile): Promise<PipelineResult> {
@@ -184,6 +189,10 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
         else if (source === "builtinaustin") jobs = await builtInAustinConnector.search(query, runtimeConfig);
         else if (source === "ats-feed" || source === "ashby")
           jobs = await atsFeedConnector.search(query, cfg);
+        else if (source === "remotive") jobs = await remotiveConnector.search(query, cfg);
+        else if (source === "arbeitnow") jobs = await arbeitnowConnector.search(query, cfg);
+        else if (source === "ziprecruiter") jobs = await zipRecruiterConnector.search(query, cfg);
+        else if (source === "usajobs") jobs = await usaJobsConnector.search(query, cfg);
       } catch (err) {
         console.error(`[pipeline] connector ${source} error:`, (err as Error).message);
       }
@@ -206,19 +215,19 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
   let newCount = 0;
   let scoredCount = 0;
   let strongCount = 0;
+  const newJobIds: string[] = [];
 
   for (const job of filtered) {
-    const { score, breakdown } = scoreRawJobAgainstProfile(job, profile);
-    const tier = toMatchTier(score);
     scoredCount++;
-
     try {
+      // Insert with match_tier='new' and no scored_at so the run endpoint
+      // can AI-score each job — exactly the same flow as manual import.
       const { rows } = await pool.query(
         `INSERT INTO job_matches (
           user_id, profile_id, external_id, source, source_url, title, company,
           location, remote, job_type, description, requirements, posted_at, raw_data,
-          ai_score, score_breakdown, match_tier, scored_at, status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::text[],$13,$14,$15,$16,$17,now(),'new')
+          match_tier, status
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::text[],$13,$14,'new','new')
         ON CONFLICT (user_id, source, external_id) DO NOTHING
         RETURNING id`,
         [
@@ -236,19 +245,16 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
           job.requirements ?? [],
           job.postedAt ?? new Date(),
           JSON.stringify(job.rawData ?? {}),
-          score,
-          JSON.stringify(breakdown),
-          tier,
         ]
       );
       if (rows.length > 0) {
         newCount++;
-        if (tier === "strong") strongCount++;
+        newJobIds.push(rows[0].id as string);
       }
     } catch (err) {
       console.error("[pipeline] insert error:", (err as Error).message);
     }
   }
 
-  return { found: filtered.length, newJobs: newCount, scored: scoredCount, strongMatches: strongCount };
+  return { found: filtered.length, newJobs: newCount, scored: scoredCount, strongMatches: strongCount, newJobIds };
 }
