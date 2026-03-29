@@ -32,6 +32,7 @@ export interface UpdateProfileRequest {
 }
 
 export interface ResumePreferences {
+  executiveSkills?: string;
   keyAchievements?: string;
   certifications?: string;
   toolsTechnologies: string[];

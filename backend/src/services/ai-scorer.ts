@@ -18,8 +18,19 @@ export interface AiScoreResult {
     roleAlignment: number;
     locationSalaryFit: number;
     reasoning: string;
+    error?: string;
   };
 }
+
+export type AiScoreError =
+  | { kind: "quota";   message: string }
+  | { kind: "auth";    message: string }
+  | { kind: "nokey";   message: string }
+  | { kind: "other";   message: string };
+
+export type AiScoreOutcome =
+  | { ok: true;  result: AiScoreResult }
+  | { ok: false; error: AiScoreError };
 
 interface JobInput {
   title: string;
@@ -51,7 +62,7 @@ function clamp(n: number, min = 0, max = 100) {
 export async function scoreJobWithAi(
   userId: string,
   job: JobInput
-): Promise<AiScoreResult | null> {
+): Promise<AiScoreOutcome> {
   // ── 1. Get the user's connected OpenAI key ────────────────────────────────
   const { rows: keyRows } = await pool.query<{
     encrypted_key: string;
@@ -66,7 +77,9 @@ export async function scoreJobWithAi(
     [userId]
   );
 
-  if (!keyRows[0]?.encrypted_key) return null;
+  if (!keyRows[0]?.encrypted_key) {
+    return { ok: false, error: { kind: "nokey", message: "No OpenAI API key connected. Go to Settings → AI Providers to add one." } };
+  }
 
   const apiKey = decrypt({
     encrypted: keyRows[0].encrypted_key,
@@ -223,15 +236,22 @@ Respond ONLY with this JSON:
     });
 
     if (!res.ok) {
-      console.error("[ai-scorer] OpenAI error:", res.status, await res.text().catch(() => ""));
-      return null;
+      const body = await res.text().catch(() => "");
+      console.error("[ai-scorer] OpenAI error:", res.status, body);
+      if (res.status === 429 || body.includes("insufficient_quota")) {
+        return { ok: false, error: { kind: "quota", message: "Your OpenAI API key has exceeded its quota. Check billing at platform.openai.com." } };
+      }
+      if (res.status === 401) {
+        return { ok: false, error: { kind: "auth", message: "OpenAI API key is invalid or revoked. Reconnect it in Settings → AI Providers." } };
+      }
+      return { ok: false, error: { kind: "other", message: `OpenAI returned ${res.status}.` } };
     }
 
     const data = await res.json() as { choices?: { message?: { content?: string } }[] };
     raw = data.choices?.[0]?.message?.content ?? "";
   } catch (err) {
     console.error("[ai-scorer] Fetch error:", (err as Error).message);
-    return null;
+    return { ok: false, error: { kind: "other", message: (err as Error).message } };
   }
 
   // ── 6. Parse and validate ─────────────────────────────────────────────────
@@ -256,19 +276,22 @@ Respond ONLY with this JSON:
     const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
 
     return {
-      score,
-      tier: toTier(score),
-      summary,
-      breakdown: {
-        skillsMatch,
-        experienceMatch,
-        roleAlignment,
-        locationSalaryFit,
-        reasoning,
+      ok: true,
+      result: {
+        score,
+        tier: toTier(score),
+        summary,
+        breakdown: {
+          skillsMatch,
+          experienceMatch,
+          roleAlignment,
+          locationSalaryFit,
+          reasoning,
+        },
       },
     };
   } catch (err) {
     console.error("[ai-scorer] Parse error:", (err as Error).message, "raw:", raw);
-    return null;
+    return { ok: false, error: { kind: "other", message: "Failed to parse AI response." } };
   }
 }

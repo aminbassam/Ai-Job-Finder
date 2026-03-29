@@ -116,22 +116,22 @@ router.put("/", validate(updateProfileSchema), async (req: Request, res: Respons
       data.maxSalary       !== undefined
     ) {
       await query(
-        `INSERT INTO user_profiles (user_id, professional_summary, years_experience, remote_only, min_salary_usd, max_salary_usd)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO user_profiles (user_id, professional_summary, years_experience, min_salary_usd, max_salary_usd)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (user_id) DO UPDATE SET
            professional_summary = COALESCE($2, user_profiles.professional_summary),
            years_experience     = COALESCE($3, user_profiles.years_experience),
-           remote_only          = COALESCE($4, user_profiles.remote_only),
-           min_salary_usd       = COALESCE($5, user_profiles.min_salary_usd),
-           max_salary_usd       = COALESCE($6, user_profiles.max_salary_usd),
+           remote_only          = COALESCE($6, user_profiles.remote_only),
+           min_salary_usd       = COALESCE($4, user_profiles.min_salary_usd),
+           max_salary_usd       = COALESCE($5, user_profiles.max_salary_usd),
            updated_at           = NOW()`,
         [
           req.userId,
           data.summary         ?? null,
           data.yearsExperience ?? null,
-          data.remoteOnly      ?? null,
           data.minSalary       ?? null,
           data.maxSalary       ?? null,
+          data.remoteOnly      ?? null,
         ]
       );
     }

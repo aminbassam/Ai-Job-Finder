@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Loader2, ExternalLink, Bookmark, CheckCircle, XCircle,
   ChevronDown, ChevronUp, Briefcase, MapPin, DollarSign,
-  Zap, Filter, RefreshCw, Clock, Sparkles,
+  Zap, Filter, RefreshCw, Clock, Sparkles, AlertCircle,
 } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -178,13 +178,24 @@ function MatchCard({
             </div>
           </div>
 
-          {/* Scoring in progress indicator */}
-          {match.matchTier === "new" && !match.aiScore && (
-            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-[#6B7280]">
-              <Loader2 className="h-3 w-3 animate-spin text-[#4F8CFF]" />
-              AI scoring in progress…
-            </div>
-          )}
+          {/* Scoring state */}
+          {match.matchTier === "new" && !match.aiScore && (() => {
+            const scoringError = (match.scoreBreakdown as Record<string, unknown> | undefined)?.error as string | undefined;
+            if (scoringError) {
+              return (
+                <div className="flex items-start gap-1.5 mt-2 text-[11px] text-[#F87171]">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                  <span>{scoringError}</span>
+                </div>
+              );
+            }
+            return (
+              <div className="flex items-center gap-1.5 mt-2 text-[11px] text-[#6B7280]">
+                <Loader2 className="h-3 w-3 animate-spin text-[#4F8CFF]" />
+                AI scoring in progress…
+              </div>
+            );
+          })()}
 
           {/* AI summary preview (collapsed) */}
           {!expanded && match.aiSummary && (
@@ -357,9 +368,13 @@ export function ResultsTab() {
     }
   }, [tierFilter, statusFilter, offset]);
 
-  // Poll every 4s while any job is still unscored (tier = "new" and no aiScore)
+  const isUnscored = (m: JobMatch) =>
+    m.matchTier === "new" && !m.aiScore &&
+    !(m.scoreBreakdown as Record<string, unknown> | undefined)?.error;
+
+  // Poll every 4s while any job is still unscored (tier = "new", no aiScore, no error)
   useEffect(() => {
-    const hasPending = matches.some((m) => m.matchTier === "new" && !m.aiScore);
+    const hasPending = matches.some(isUnscored);
     if (hasPending && !pollRef.current) {
       pollRef.current = setInterval(async () => {
         const updated = await getResults({
@@ -371,7 +386,7 @@ export function ResultsTab() {
         if (!updated) return;
         setMatches(updated.matches);
         setTotal(updated.total);
-        const stillPending = updated.matches.some((m) => m.matchTier === "new" && !m.aiScore);
+        const stillPending = updated.matches.some(isUnscored);
         if (!stillPending && pollRef.current) {
           clearInterval(pollRef.current);
           pollRef.current = null;

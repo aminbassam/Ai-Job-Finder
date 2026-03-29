@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Target, Brain, Zap, Shield, BarChart2, Sparkles,
   CheckCircle2, AlertCircle, ChevronRight, FileText,
-  Loader2, X, ArrowRight, Plus,
+  Loader2, X,
 } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
@@ -74,6 +74,7 @@ interface FormState {
   summary: string;
   yearsExperience: number;
   coreSkills: string[];
+  executiveSkills: string;
   keyAchievements: string;
   certifications: string;
   toolsTech: string[];
@@ -98,15 +99,16 @@ interface FormState {
 
 function calcScore(f: FormState): { score: number; missing: string[] } {
   const checks: [boolean, number, string][] = [
-    [f.summary.length > 80,         15, "Professional summary (80+ chars)"],
-    [f.coreSkills.length >= 3,       15, "Core skills (at least 3)"],
-    [f.yearsExperience > 0,          10, "Years of experience"],
-    [f.keyAchievements.length > 80,  15, "Key achievements (80+ chars)"],
-    [f.targetRoles.length >= 1,      15, "Target roles (at least 1)"],
-    [f.mustHaveKeywords.length >= 2, 10, "ATS keywords (at least 2)"],
-    [f.toolsTech.length >= 1,        10, "Tools & technologies"],
-    [f.industryFocus.length >= 1,     5, "Industry focus"],
-    [!!f.seniorityLevel,              5, "Seniority level"],
+    [f.summary.length > 80,            13, "Professional summary (80+ chars)"],
+    [f.coreSkills.length >= 3,         13, "Core skills (at least 3)"],
+    [f.yearsExperience > 0,            10, "Years of experience"],
+    [f.executiveSkills.length > 40,    12, "Executive skills (40+ chars)"],
+    [f.keyAchievements.length > 80,    13, "Key achievements (80+ chars)"],
+    [f.targetRoles.length >= 1,        13, "Target roles (at least 1)"],
+    [f.mustHaveKeywords.length >= 2,   10, "ATS keywords (at least 2)"],
+    [f.toolsTech.length >= 1,           8, "Tools & technologies"],
+    [f.industryFocus.length >= 1,       4, "Industry focus"],
+    [!!f.seniorityLevel,                4, "Seniority level"],
   ];
   let score = 0;
   const missing: string[] = [];
@@ -162,6 +164,7 @@ const DEFAULT_STATE: FormState = {
   summary: "",
   yearsExperience: 0,
   coreSkills: [],
+  executiveSkills: "",
   keyAchievements: "",
   certifications: "",
   toolsTech: [],
@@ -184,144 +187,6 @@ const DEFAULT_STATE: FormState = {
   onlyRephrase: true,
 };
 
-// ── AI Improve panel ──────────────────────────────────────────────────────────
-
-interface AiSuggestions {
-  summary: string | null;
-  keyAchievements: string | null;
-  suggestedKeywords: string[];
-}
-
-function AiImprovePanel({
-  suggestions,
-  onApplySummary,
-  onApplyAchievements,
-  onAddKeywords,
-  onClose,
-}: {
-  suggestions: AiSuggestions;
-  onApplySummary: (v: string) => void;
-  onApplyAchievements: (v: string) => void;
-  onAddKeywords: (kws: string[]) => void;
-  onClose: () => void;
-}) {
-  const [appliedSummary, setAppliedSummary]   = useState(false);
-  const [appliedAch,     setAppliedAch]       = useState(false);
-  const [addedKws,       setAddedKws]         = useState(false);
-
-  return (
-    <Card className="bg-[#0D1117] border-[#4F8CFF]/30 p-5 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-lg bg-[#4F8CFF]/15 flex items-center justify-center">
-            <Sparkles className="h-3.5 w-3.5 text-[#4F8CFF]" />
-          </div>
-          <div>
-            <p className="text-[14px] font-semibold text-white">AI Suggestions</p>
-            <p className="text-[11px] text-[#6B7280]">Review and apply improvements section by section</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-[#6B7280] hover:text-white transition-colors p-1"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* Improved summary */}
-      {suggestions.summary && (
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wide">
-            Improved Professional Summary
-          </p>
-          <div className="p-3.5 rounded-lg bg-[#111827] border border-[#1F2937] text-[13px] text-[#D1D5DB] leading-relaxed">
-            {suggestions.summary}
-          </div>
-          <Button
-            size="sm"
-            onClick={() => { onApplySummary(suggestions.summary!); setAppliedSummary(true); }}
-            disabled={appliedSummary}
-            className={`text-[12px] h-8 gap-1.5 ${
-              appliedSummary
-                ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30 hover:bg-[#10B981]/15"
-                : "bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white"
-            }`}
-          >
-            {appliedSummary
-              ? <><CheckCircle2 className="h-3.5 w-3.5" /> Applied</>
-              : <><ArrowRight className="h-3.5 w-3.5" /> Apply to summary</>
-            }
-          </Button>
-        </div>
-      )}
-
-      {/* Improved achievements */}
-      {suggestions.keyAchievements && (
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wide">
-            Improved Key Achievements
-          </p>
-          <div className="p-3.5 rounded-lg bg-[#111827] border border-[#1F2937] text-[13px] text-[#D1D5DB] leading-relaxed whitespace-pre-line">
-            {suggestions.keyAchievements}
-          </div>
-          <Button
-            size="sm"
-            onClick={() => { onApplyAchievements(suggestions.keyAchievements!); setAppliedAch(true); }}
-            disabled={appliedAch}
-            className={`text-[12px] h-8 gap-1.5 ${
-              appliedAch
-                ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30 hover:bg-[#10B981]/15"
-                : "bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white"
-            }`}
-          >
-            {appliedAch
-              ? <><CheckCircle2 className="h-3.5 w-3.5" /> Applied</>
-              : <><ArrowRight className="h-3.5 w-3.5" /> Apply to achievements</>
-            }
-          </Button>
-        </div>
-      )}
-
-      {/* Suggested keywords */}
-      {suggestions.suggestedKeywords.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wide">
-            Suggested ATS Keywords
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {suggestions.suggestedKeywords.map((kw) => (
-              <span
-                key={kw}
-                className="px-2.5 py-1 rounded-full bg-[#4F8CFF]/10 text-[#4F8CFF] border border-[#4F8CFF]/25 text-[12px]"
-              >
-                {kw}
-              </span>
-            ))}
-          </div>
-          <Button
-            size="sm"
-            onClick={() => { onAddKeywords(suggestions.suggestedKeywords); setAddedKws(true); }}
-            disabled={addedKws}
-            className={`text-[12px] h-8 gap-1.5 ${
-              addedKws
-                ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30 hover:bg-[#10B981]/15"
-                : "bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white"
-            }`}
-          >
-            {addedKws
-              ? <><CheckCircle2 className="h-3.5 w-3.5" /> Added to keywords</>
-              : <><Plus className="h-3.5 w-3.5" /> Add all to ATS keywords</>
-            }
-          </Button>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ResumePreferencesTab() {
@@ -333,9 +198,9 @@ export function ResumePreferencesTab() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // AI improve state
-  const [improving,    setImproving]    = useState(false);
-  const [improveError, setImproveError] = useState<string | null>(null);
-  const [suggestions,  setSuggestions]  = useState<AiSuggestions | null>(null);
+  const [improving,     setImproving]     = useState(false);
+  const [improveError,  setImproveError]  = useState<string | null>(null);
+  const [aiApplied,     setAiApplied]     = useState(false);
 
   // Load profile + resume prefs on mount
   useEffect(() => {
@@ -347,6 +212,7 @@ export function ResumePreferencesTab() {
         summary:               profile?.summary              ?? "",
         yearsExperience:       profile?.yearsExperience      ?? 0,
         coreSkills:            profile?.skills               ?? [],
+        executiveSkills:       prefs?.executiveSkills        ?? "",
         keyAchievements:       prefs?.keyAchievements        ?? "",
         certifications:        prefs?.certifications         ?? "",
         toolsTech:             prefs?.toolsTechnologies      ?? [],
@@ -390,6 +256,7 @@ export function ResumePreferencesTab() {
           skills: form.coreSkills,
         }),
         profileService.updateResumePreferences({
+          executiveSkills:            form.executiveSkills,
           keyAchievements:            form.keyAchievements,
           certifications:             form.certifications,
           toolsTechnologies:          form.toolsTech,
@@ -426,7 +293,7 @@ export function ResumePreferencesTab() {
   async function handleImproveWithAi() {
     setImproving(true);
     setImproveError(null);
-    setSuggestions(null);
+    setAiApplied(false);
     try {
       const result = await settingsService.improveResume({
         summary:          form.summary,
@@ -441,7 +308,18 @@ export function ResumePreferencesTab() {
         mustHaveKeywords: form.mustHaveKeywords,
         yearsExperience:  form.yearsExperience,
       });
-      setSuggestions(result);
+      // Apply all suggestions directly to the form as a draft
+      setForm((prev) => ({
+        ...prev,
+        ...(result.summary        ? { summary: result.summary }               : {}),
+        ...(result.keyAchievements ? { keyAchievements: result.keyAchievements } : {}),
+        ...(result.suggestedKeywords.length > 0
+          ? { mustHaveKeywords: Array.from(new Set([...prev.mustHaveKeywords, ...result.suggestedKeywords])) }
+          : {}),
+      }));
+      setIsDirty(true);
+      setSaved(false);
+      setAiApplied(true);
     } catch (err) {
       setImproveError(err instanceof Error ? err.message : "AI improvement failed.");
     } finally {
@@ -570,18 +448,17 @@ export function ResumePreferencesTab() {
         </div>
       )}
 
-      {/* ── AI Suggestions panel ─────────────────────────────────────────── */}
-      {suggestions && (
-        <AiImprovePanel
-          suggestions={suggestions}
-          onApplySummary={(v) => { update("summary", v); setSuggestions((s) => s ? { ...s, summary: null } : s); }}
-          onApplyAchievements={(v) => { update("keyAchievements", v); setSuggestions((s) => s ? { ...s, keyAchievements: null } : s); }}
-          onAddKeywords={(kws) => {
-            const merged = Array.from(new Set([...form.mustHaveKeywords, ...kws]));
-            update("mustHaveKeywords", merged);
-          }}
-          onClose={() => setSuggestions(null)}
-        />
+      {/* ── AI applied banner ────────────────────────────────────────────── */}
+      {aiApplied && (
+        <div className="flex items-start gap-3 p-3.5 rounded-lg bg-[#4F8CFF]/8 border border-[#4F8CFF]/25 text-[12px] text-[#93C5FD]">
+          <Sparkles className="h-4 w-4 shrink-0 mt-px text-[#4F8CFF]" />
+          <span className="flex-1">
+            AI improvements applied to the form as a draft. Review the updated fields below, then click <strong className="text-white">Save Changes</strong> to persist them.
+          </span>
+          <button type="button" onClick={() => setAiApplied(false)} className="text-[#6B7280] hover:text-white transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       )}
 
       {/* ── Section 1: Profile Core ───────────────────────────────────────── */}
@@ -619,6 +496,19 @@ export function ResumePreferencesTab() {
               <span>0</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span>
             </div>
           </div>
+        </div>
+
+        <div>
+          <FieldLabel hint="Leadership, strategic, and executive-level competencies that differentiate you.">
+            Executive Skills
+          </FieldLabel>
+          <Textarea
+            rows={3}
+            value={form.executiveSkills}
+            onChange={(e) => update("executiveSkills", e.target.value)}
+            placeholder="• P&L ownership across $50M+ portfolio&#10;• Built and scaled cross-functional teams of 50+&#10;• Board-level communication and investor relations"
+            className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563] text-[13px]"
+          />
         </div>
 
         <div>

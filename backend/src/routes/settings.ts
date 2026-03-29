@@ -306,7 +306,7 @@ router.delete("/ai-providers/:provider", async (req: Request, res: Response): Pr
 router.get("/resume-preferences", async (req: Request, res: Response): Promise<void> => {
   try {
     const prefs = await queryOne<Record<string, unknown>>(
-      `SELECT key_achievements, certifications, tools_technologies, soft_skills,
+      `SELECT executive_skills, key_achievements, certifications, tools_technologies, soft_skills,
               target_roles, seniority_level, industry_focus, must_have_keywords,
               ai_tone, resume_style, bullet_style,
               ats_level, include_cover_letters,
@@ -315,7 +315,30 @@ router.get("/resume-preferences", async (req: Request, res: Response): Promise<v
        FROM resume_preferences WHERE user_id = $1`,
       [req.userId]
     );
-    res.json(prefs ?? {});
+    if (!prefs) { res.json({}); return; }
+    res.json({
+      executiveSkills:            prefs.executive_skills,
+      keyAchievements:            prefs.key_achievements,
+      certifications:             prefs.certifications,
+      toolsTechnologies:          prefs.tools_technologies,
+      softSkills:                 prefs.soft_skills,
+      targetRoles:                prefs.target_roles,
+      seniorityLevel:             prefs.seniority_level,
+      industryFocus:              prefs.industry_focus,
+      mustHaveKeywords:           prefs.must_have_keywords,
+      aiTone:                     prefs.ai_tone,
+      resumeStyle:                prefs.resume_style,
+      bulletStyle:                prefs.bullet_style,
+      atsLevel:                   prefs.ats_level,
+      includeCoverLetters:        prefs.include_cover_letters,
+      coverLetterTone:            prefs.cover_letter_tone,
+      coverLetterLength:          prefs.cover_letter_length,
+      coverLetterPersonalization: prefs.cover_letter_personalization,
+      noFakeExperience:           prefs.no_fake_experience,
+      noChangeTitles:             prefs.no_change_titles,
+      noExaggerateMetrics:        prefs.no_exaggerate_metrics,
+      onlyRephrase:               prefs.only_rephrase,
+    });
   } catch (err) {
     console.error("[settings/resume-prefs/get]", err);
     res.status(500).json({ message: "Failed to fetch resume preferences." });
@@ -325,6 +348,7 @@ router.get("/resume-preferences", async (req: Request, res: Response): Promise<v
 // ── PUT /api/settings/resume-preferences ─────────────────────────────────────
 
 const resumePrefsSchema = z.object({
+  executiveSkills:            z.string().max(5000).optional(),
   keyAchievements:            z.string().max(5000).optional(),
   certifications:             z.string().max(2000).optional(),
   toolsTechnologies:          z.array(z.string().max(100)).max(50).optional(),
@@ -355,29 +379,31 @@ router.put("/resume-preferences", validate(resumePrefsSchema), async (req: Reque
       `INSERT INTO resume_preferences (user_id)
        VALUES ($1)
        ON CONFLICT (user_id) DO UPDATE SET
-         key_achievements             = COALESCE($2,   resume_preferences.key_achievements),
-         certifications               = COALESCE($3,   resume_preferences.certifications),
-         tools_technologies           = COALESCE($4::text[], resume_preferences.tools_technologies),
-         soft_skills                  = COALESCE($5::text[], resume_preferences.soft_skills),
-         target_roles                 = COALESCE($6::text[], resume_preferences.target_roles),
-         seniority_level              = COALESCE($7,   resume_preferences.seniority_level),
-         industry_focus               = COALESCE($8::text[], resume_preferences.industry_focus),
-         must_have_keywords           = COALESCE($9::text[], resume_preferences.must_have_keywords),
-         ai_tone                      = COALESCE($10,  resume_preferences.ai_tone),
-         resume_style                 = COALESCE($11,  resume_preferences.resume_style),
-         bullet_style                 = COALESCE($12,  resume_preferences.bullet_style),
-         ats_level                    = COALESCE($13,  resume_preferences.ats_level),
-         include_cover_letters        = COALESCE($14,  resume_preferences.include_cover_letters),
-         cover_letter_tone            = COALESCE($15,  resume_preferences.cover_letter_tone),
-         cover_letter_length          = COALESCE($16,  resume_preferences.cover_letter_length),
-         cover_letter_personalization = COALESCE($17,  resume_preferences.cover_letter_personalization),
-         no_fake_experience           = COALESCE($18,  resume_preferences.no_fake_experience),
-         no_change_titles             = COALESCE($19,  resume_preferences.no_change_titles),
-         no_exaggerate_metrics        = COALESCE($20,  resume_preferences.no_exaggerate_metrics),
-         only_rephrase                = COALESCE($21,  resume_preferences.only_rephrase),
+         executive_skills             = COALESCE($2,   resume_preferences.executive_skills),
+         key_achievements             = COALESCE($3,   resume_preferences.key_achievements),
+         certifications               = COALESCE($4,   resume_preferences.certifications),
+         tools_technologies           = COALESCE($5::text[], resume_preferences.tools_technologies),
+         soft_skills                  = COALESCE($6::text[], resume_preferences.soft_skills),
+         target_roles                 = COALESCE($7::text[], resume_preferences.target_roles),
+         seniority_level              = COALESCE($8,   resume_preferences.seniority_level),
+         industry_focus               = COALESCE($9::text[], resume_preferences.industry_focus),
+         must_have_keywords           = COALESCE($10::text[], resume_preferences.must_have_keywords),
+         ai_tone                      = COALESCE($11,  resume_preferences.ai_tone),
+         resume_style                 = COALESCE($12,  resume_preferences.resume_style),
+         bullet_style                 = COALESCE($13,  resume_preferences.bullet_style),
+         ats_level                    = COALESCE($14,  resume_preferences.ats_level),
+         include_cover_letters        = COALESCE($15,  resume_preferences.include_cover_letters),
+         cover_letter_tone            = COALESCE($16,  resume_preferences.cover_letter_tone),
+         cover_letter_length          = COALESCE($17,  resume_preferences.cover_letter_length),
+         cover_letter_personalization = COALESCE($18,  resume_preferences.cover_letter_personalization),
+         no_fake_experience           = COALESCE($19,  resume_preferences.no_fake_experience),
+         no_change_titles             = COALESCE($20,  resume_preferences.no_change_titles),
+         no_exaggerate_metrics        = COALESCE($21,  resume_preferences.no_exaggerate_metrics),
+         only_rephrase                = COALESCE($22,  resume_preferences.only_rephrase),
          updated_at                   = NOW()`,
       [
         req.userId,
+        d.executiveSkills            ?? null,
         d.keyAchievements            ?? null,
         d.certifications             ?? null,
         d.toolsTechnologies          !== undefined ? d.toolsTechnologies : null,

@@ -576,7 +576,7 @@ router.post("/import", async (req, res) => {
     // ── Background AI scoring ──────────────────────────────────────────────
     setImmediate(async () => {
       try {
-        const result = await scoreJobWithAi(req.userId!, {
+        const outcome = await scoreJobWithAi(req.userId!, {
           title: saved.title,
           company: saved.company,
           description: saved.description,
@@ -587,7 +587,18 @@ router.post("/import", async (req, res) => {
           salaryMin: saved.salary_min,
           salaryMax: saved.salary_max,
         });
-        if (!result) return;
+        if (!outcome.ok) {
+          // Mark as scored-with-error so the UI stops polling and shows the message
+          await pool.query(
+            `UPDATE job_matches
+             SET match_tier = 'new', score_breakdown = $2, scored_at = now(), updated_at = now()
+             WHERE id = $1`,
+            [saved.id, JSON.stringify({ error: outcome.error.message })]
+          );
+          console.warn(`[import] AI scoring failed for ${saved.id}: ${outcome.error.message}`);
+          return;
+        }
+        const { result } = outcome;
         await pool.query(
           `UPDATE job_matches
            SET ai_score = $2, match_tier = $3, score_breakdown = $4,
