@@ -12,6 +12,7 @@ import { requireAuth } from "../middleware/auth";
 import { pool } from "../db/pool";
 import { runPipeline, PipelineProfile } from "../services/pipeline";
 import { fetchImportedJobDetails } from "../services/import-metadata";
+import { scoreJobWithAi } from "../services/ai-scorer";
 
 const router = Router();
 router.use(requireAuth);
@@ -568,7 +569,43 @@ router.post("/import", async (req, res) => {
         JSON.stringify(rawData),
       ]
     );
-    res.status(201).json(toMatch(rows[0]));
+    const saved = rows[0];
+    // Respond immediately — AI scoring runs in the background
+    res.status(201).json(toMatch(saved));
+
+    // ── Background AI scoring ──────────────────────────────────────────────
+    setImmediate(async () => {
+      try {
+        const result = await scoreJobWithAi(req.userId!, {
+          title: saved.title,
+          company: saved.company,
+          description: saved.description,
+          requirements: saved.requirements,
+          location: saved.location,
+          remote: saved.remote,
+          jobType: saved.job_type,
+          salaryMin: saved.salary_min,
+          salaryMax: saved.salary_max,
+        });
+        if (!result) return;
+        await pool.query(
+          `UPDATE job_matches
+           SET ai_score = $2, match_tier = $3, score_breakdown = $4,
+               ai_summary = $5, scored_at = now(), updated_at = now()
+           WHERE id = $1`,
+          [
+            saved.id,
+            result.score,
+            result.tier,
+            JSON.stringify(result.breakdown),
+            result.summary,
+          ]
+        );
+        console.log(`[import] AI scored job ${saved.id}: ${result.score} (${result.tier})`);
+      } catch (err) {
+        console.error("[import] AI scoring failed:", (err as Error).message);
+      }
+    });
   } catch (err) {
     const msg = (err as Error).message;
     console.error("[import]", msg);
@@ -649,6 +686,7 @@ function toMatch(r: Record<string, unknown>) {
     salaryMax: r.salary_max,
     requirements: r.requirements,
     aiScore: r.ai_score,
+    aiSummary: r.ai_summary,
     scoreBreakdown: r.score_breakdown,
     matchTier: r.match_tier,
     scoredAt: r.scored_at,

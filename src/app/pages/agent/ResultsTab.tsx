@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Loader2, ExternalLink, Bookmark, CheckCircle, XCircle,
   ChevronDown, ChevronUp, Briefcase, MapPin, DollarSign,
-  Zap, Filter, RefreshCw, Clock,
+  Zap, Filter, RefreshCw, Clock, Sparkles,
 } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -178,8 +178,23 @@ function MatchCard({
             </div>
           </div>
 
-          {/* Score breakdown + description toggle */}
-          {(match.scoreBreakdown || match.description) && (
+          {/* Scoring in progress indicator */}
+          {match.matchTier === "new" && !match.aiScore && (
+            <div className="flex items-center gap-1.5 mt-2 text-[11px] text-[#6B7280]">
+              <Loader2 className="h-3 w-3 animate-spin text-[#4F8CFF]" />
+              AI scoring in progress…
+            </div>
+          )}
+
+          {/* AI summary preview (collapsed) */}
+          {!expanded && match.aiSummary && (
+            <p className="mt-2 text-[12px] text-[#6B7280] leading-relaxed line-clamp-2">
+              {match.aiSummary}
+            </p>
+          )}
+
+          {/* Toggle */}
+          {(match.scoreBreakdown || match.aiSummary || match.description) && (
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
@@ -190,35 +205,65 @@ function MatchCard({
             </button>
           )}
 
-          {!expanded && match.description && (
-            <p className="mt-2 text-[12px] text-[#6B7280] leading-relaxed line-clamp-2">
-              {match.description.replace(/<[^>]+>/g, " ").slice(0, 220)}
-              {match.description.length > 220 ? "…" : ""}
-            </p>
-          )}
-
           {expanded && (
             <div className="mt-3 space-y-3">
-              {match.scoreBreakdown && (
-                <div className="grid grid-cols-4 gap-2">
-                  {Object.entries(match.scoreBreakdown)
-                    .filter(([k]) => k !== "total")
-                    .map(([key, val]) => (
-                      <div key={key} className="text-center p-2 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                        <p className="text-[10px] text-[#6B7280] capitalize mb-1">
-                          {key.replace(/([A-Z])/g, " $1").trim()}
-                        </p>
-                        <p className="text-[14px] font-bold text-white">{val}</p>
-                      </div>
-                    ))}
+              {/* AI Summary */}
+              {match.aiSummary && (
+                <div className="p-3 rounded-lg bg-[#0B0F14] border border-[#4F8CFF]/20">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Sparkles className="h-3 w-3 text-[#4F8CFF]" />
+                    <span className="text-[10px] font-semibold text-[#4F8CFF] uppercase tracking-wide">AI Summary</span>
+                  </div>
+                  <p className="text-[12px] text-[#D1D5DB] leading-relaxed">{match.aiSummary}</p>
                 </div>
               )}
-              {match.description && (
-                <p className="text-[12px] text-[#9CA3AF] leading-relaxed line-clamp-4">
+
+              {/* AI Score breakdown */}
+              {match.scoreBreakdown && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold text-[#6B7280] uppercase tracking-wide">Match breakdown</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { key: "skillsMatch",       label: "Skills match",       max: 25, color: "#10B981" },
+                      { key: "experienceMatch",    label: "Experience fit",     max: 25, color: "#F59E0B" },
+                      { key: "roleAlignment",      label: "Role alignment",     max: 25, color: "#4F8CFF" },
+                      { key: "locationSalaryFit",  label: "Location / salary",  max: 25, color: "#A78BFA" },
+                    ] as const).map(({ key, label, max, color }) => {
+                      const val = (match.scoreBreakdown as Record<string, number>)[key] ?? 0;
+                      const pct = Math.round((val / max) * 100);
+                      return (
+                        <div key={key} className="p-2.5 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] text-[#9CA3AF]">{label}</span>
+                            <span className="text-[12px] font-bold text-white">{val}<span className="text-[9px] text-[#4B5563]">/{max}</span></span>
+                          </div>
+                          <div className="h-1 rounded-full bg-[#1F2937] overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${pct}%`, backgroundColor: color }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {match.scoreBreakdown.reasoning && (
+                    <p className="text-[11px] text-[#9CA3AF] leading-relaxed italic px-0.5">
+                      {match.scoreBreakdown.reasoning}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Raw description fallback if no AI summary */}
+              {!match.aiSummary && match.description && (
+                <p className="text-[12px] text-[#9CA3AF] leading-relaxed">
                   {match.description.replace(/<[^>]+>/g, " ").slice(0, 600)}
                   {match.description.length > 600 ? "…" : ""}
                 </p>
               )}
+
+              {/* Requirements */}
               {match.requirements && match.requirements.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {match.requirements.slice(0, 8).map((r) => (
@@ -288,6 +333,8 @@ export function ResultsTab() {
   const [offset, setOffset] = useState(0);
   const LIMIT = 20;
 
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const load = useCallback(async (reset = false) => {
     setLoading(true);
     try {
@@ -304,10 +351,40 @@ export function ResultsTab() {
         setMatches((prev) => [...prev, ...result.matches]);
       }
       setTotal(result.total);
+      return result.matches;
     } finally {
       setLoading(false);
     }
   }, [tierFilter, statusFilter, offset]);
+
+  // Poll every 4s while any job is still unscored (tier = "new" and no aiScore)
+  useEffect(() => {
+    const hasPending = matches.some((m) => m.matchTier === "new" && !m.aiScore);
+    if (hasPending && !pollRef.current) {
+      pollRef.current = setInterval(async () => {
+        const updated = await getResults({
+          tier: tierFilter || undefined,
+          status: statusFilter || undefined,
+          limit: LIMIT,
+          offset: 0,
+        }).catch(() => null);
+        if (!updated) return;
+        setMatches(updated.matches);
+        setTotal(updated.total);
+        const stillPending = updated.matches.some((m) => m.matchTier === "new" && !m.aiScore);
+        if (!stillPending && pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      }, 4000);
+    } else if (!hasPending && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    return () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    };
+  }, [matches, tierFilter, statusFilter]);
 
   useEffect(() => { load(true); }, [tierFilter, statusFilter]);
 

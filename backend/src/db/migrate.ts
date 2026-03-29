@@ -23,6 +23,7 @@ const migrations = [
   { name: "005_job_agent",              file: join(ROOT, "db/migrations/005_job_agent.sql") },
   { name: "006_agent_profile_filters",  file: join(ROOT, "db/migrations/006_agent_profile_filters.sql") },
   { name: "007_fix_ai_provider_columns", file: join(ROOT, "db/migrations/007_fix_ai_provider_columns.sql") },
+  { name: "008_job_match_ai_summary",    file: join(ROOT, "db/migrations/008_job_match_ai_summary.sql") },
 ];
 
 function splitSql(sql: string): string[] {

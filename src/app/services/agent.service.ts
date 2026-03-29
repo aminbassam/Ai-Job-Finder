@@ -50,12 +50,13 @@ export interface JobMatch {
   salaryMax?: number;
   requirements?: string[];
   aiScore?: number;
+  aiSummary?: string;
   scoreBreakdown?: {
-    titleMatch: number;
-    keywordMatch: number;
-    locationMatch: number;
-    salaryMatch: number;
-    total: number;
+    skillsMatch: number;
+    experienceMatch: number;
+    roleAlignment: number;
+    locationSalaryFit: number;
+    reasoning?: string;
   };
   matchTier?: "strong" | "maybe" | "weak" | "reject" | "new";
   scoredAt?: string;
