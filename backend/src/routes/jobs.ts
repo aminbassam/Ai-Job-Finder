@@ -3,6 +3,8 @@ import { z } from "zod";
 import { query, queryOne, transaction } from "../db/pool";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+import { getGlobalAiSettings } from "../services/ai-global-settings";
+import { markdownToPlainText, renderResumeHtml } from "../services/resume-renderer";
 
 const router = Router();
 router.use(requireAuth);
@@ -287,6 +289,7 @@ router.post("/:id/generate-resume", async (req: Request, res: Response): Promise
   const jobId = req.params.id;
 
   try {
+    const globalAi = await getGlobalAiSettings(req.userId!);
     const job = await queryOne<{ id: string; title: string }>(
       `SELECT id, title FROM jobs WHERE id = $1`, [jobId]
     );
@@ -294,6 +297,62 @@ router.post("/:id/generate-resume", async (req: Request, res: Response): Promise
       res.status(404).json({ message: "Job not found." });
       return;
     }
+
+    const profile = await queryOne<Record<string, unknown>>(
+      `SELECT u.first_name, u.last_name, u.email, u.location_text, u.current_job_title, u.linkedin_url,
+              up.professional_summary,
+              COALESCE(
+                json_agg(us.skill_name ORDER BY us.years_experience DESC NULLS LAST)
+                  FILTER (WHERE us.skill_name IS NOT NULL),
+                '[]'
+              ) AS skills
+       FROM account_users u
+       LEFT JOIN user_profiles up ON up.user_id = u.id
+       LEFT JOIN user_skills us ON us.user_id = u.id
+       WHERE u.id = $1
+       GROUP BY u.id, u.first_name, u.last_name, u.email, u.location_text, u.current_job_title, u.linkedin_url, up.professional_summary`,
+      [req.userId]
+    );
+
+    const fullName = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Candidate Name";
+    const headerLines = [
+      `# ${fullName}`,
+      [profile?.location_text, profile?.email, profile?.linkedin_url].filter(Boolean).join(" • "),
+    ].filter(Boolean);
+    const skills = Array.isArray(profile?.skills) ? (profile.skills as string[]).slice(0, 12) : [];
+    const markdown = [
+      ...headerLines,
+      "",
+      "## Professional Summary",
+      profile?.professional_summary
+        ? `${String(profile.professional_summary)} Tailoring this version toward the ${job.title} opportunity.`
+        : `Results-oriented professional pursuing the ${job.title} opportunity with a focus on clear communication, measurable impact, and strong cross-functional execution.`,
+      "",
+      "## Core Skills",
+      ...(skills.length > 0 ? skills : ["Strategic planning", "Cross-functional collaboration", "Execution", "Stakeholder management"]).map((skill) => `- ${skill}`),
+      "",
+      "## Professional Experience",
+      `- Current focus: ${String(profile?.current_job_title ?? "Recent professional experience tailored to this role")}`,
+      "- Achievement bullets can be improved further with AI once deeper work history is added to the profile.",
+      "",
+      "## Education",
+      "- Add education details in your profile to personalize this section.",
+      "",
+      "## Certifications",
+      "- Add certifications in resume settings to personalize this section.",
+    ].join("\n");
+    const contentText = markdownToPlainText(markdown);
+    const contentHtml = renderResumeHtml({
+      title: `Tailored Resume — ${job.title}`,
+      markdown,
+      formatting: {
+        titleFont: globalAi.resumeTitleFont,
+        bodyFont: globalAi.resumeBodyFont,
+        accentColor: globalAi.resumeAccentColor,
+        template: globalAi.resumeTemplate,
+        density: globalAi.resumeDensity,
+      },
+    });
 
     // In production: call the AI gateway to tailor resume content.
     const [aiRun] = await query<{ id: string }>(
@@ -305,16 +364,31 @@ router.post("/:id/generate-resume", async (req: Request, res: Response): Promise
 
     const [doc] = await query<{ id: string }>(
       `INSERT INTO documents
-         (user_id, job_id, kind, origin, resume_type, title, content_text)
-       VALUES ($1, $2, 'resume', 'ai_generated', 'tailored', $3, 'Tailored resume content — AI generation placeholder.')
+         (user_id, job_id, kind, origin, resume_type, title, content_text, content_html, metadata)
+       VALUES ($1, $2, 'resume', 'ai_generated', 'tailored', $3, $4, $5, $6::jsonb)
        RETURNING id`,
-      [req.userId, jobId, `Tailored Resume — ${job.title}`]
+      [
+        req.userId,
+        jobId,
+        `Tailored Resume — ${job.title}`,
+        contentText,
+        contentHtml,
+        JSON.stringify({
+          formatting: {
+            titleFont: globalAi.resumeTitleFont,
+            bodyFont: globalAi.resumeBodyFont,
+            accentColor: globalAi.resumeAccentColor,
+            template: globalAi.resumeTemplate,
+            density: globalAi.resumeDensity,
+          },
+        }),
+      ]
     );
 
     await query(
-      `INSERT INTO document_versions (document_id, version_no, content_text, created_by_run_id)
-       VALUES ($1, 1, 'Tailored resume content — AI generation placeholder.', $2)`,
-      [doc.id, aiRun.id]
+      `INSERT INTO document_versions (document_id, version_no, content_text, content_html, created_by_run_id)
+       VALUES ($1, 1, $2, $3, $4)`,
+      [doc.id, contentText, contentHtml, aiRun.id]
     );
 
     // Deduct credits

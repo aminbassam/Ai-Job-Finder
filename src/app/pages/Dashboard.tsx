@@ -1,4 +1,5 @@
 import { Briefcase, Target, FileText, Send, TrendingUp, Sparkles, Clock } from "lucide-react";
+import { Link } from "react-router";
 import { StatCard } from "../components/shared/StatCard";
 import { Card } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
@@ -139,12 +140,12 @@ export function Dashboard() {
           </div>
         </Card>
 
-        {/* Resume Vault Preview */}
+        {/* Resume Preview */}
         <Card className="bg-[#111827] border-[#1F2937] p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-[18px] font-semibold text-white">Resume Vault</h2>
-            <Button variant="ghost" size="sm" className="text-[#9CA3AF] hover:text-white">
-              View All
+            <h2 className="text-[18px] font-semibold text-white">Recent Resumes</h2>
+            <Button asChild variant="ghost" size="sm" className="text-[#9CA3AF] hover:text-white">
+              <Link to="/jobs">Open Job Board</Link>
             </Button>
           </div>
           <div className="space-y-3">

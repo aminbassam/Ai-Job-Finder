@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  Target, Brain, Zap, Shield, BarChart2, Sparkles,
+  Target, Sparkles, Zap,
   CheckCircle2, AlertCircle, ChevronRight, FileText,
   Loader2, X,
 } from "lucide-react";
@@ -265,18 +265,6 @@ export function ResumePreferencesTab() {
           seniorityLevel:             form.seniorityLevel,
           industryFocus:              form.industryFocus,
           mustHaveKeywords:           form.mustHaveKeywords,
-          aiTone:                     form.aiTone,
-          resumeStyle:                form.resumeStyle,
-          bulletStyle:                form.bulletStyle,
-          atsLevel:                   form.atsLevel,
-          includeCoverLetters:        form.includeCoverLetters,
-          coverLetterTone:            form.coverLetterTone,
-          coverLetterLength:          form.coverLetterLength,
-          coverLetterPersonalization: form.coverLetterPersonalization,
-          noFakeExperience:           form.noFakeExperience,
-          noChangeTitles:             form.noChangeTitles,
-          noExaggerateMetrics:        form.noExaggerateMetrics,
-          onlyRephrase:               form.onlyRephrase,
         }),
       ]);
       setIsDirty(false);
@@ -368,7 +356,7 @@ export function ResumePreferencesTab() {
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <h3 className="text-[15px] font-semibold text-white">Resume Readiness Score</h3>
+                <h3 className="text-[15px] font-semibold text-white">Master Resume Readiness Score</h3>
                 <span
                   className="text-[11px] font-medium px-2 py-0.5 rounded-full border"
                   style={{ color: scoreColor, borderColor: `${scoreColor}40`, background: `${scoreColor}15` }}
@@ -426,7 +414,7 @@ export function ResumePreferencesTab() {
               >
                 {saving
                   ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
-                  : <><ChevronRight className="h-3.5 w-3.5" /> Save changes</>
+                  : <><ChevronRight className="h-3.5 w-3.5" /> Save master resume</>
                 }
               </Button>
             </div>
@@ -453,7 +441,7 @@ export function ResumePreferencesTab() {
         <div className="flex items-start gap-3 p-3.5 rounded-lg bg-[#4F8CFF]/8 border border-[#4F8CFF]/25 text-[12px] text-[#93C5FD]">
           <Sparkles className="h-4 w-4 shrink-0 mt-px text-[#4F8CFF]" />
           <span className="flex-1">
-            AI improvements applied to the form as a draft. Review the updated fields below, then click <strong className="text-white">Save Changes</strong> to persist them.
+            AI improvements applied to the form as a draft. Review the updated fields below, then click <strong className="text-white">Save Master Resume</strong> to persist them.
           </span>
           <button type="button" onClick={() => setAiApplied(false)} className="text-[#6B7280] hover:text-white transition-colors">
             <X className="h-4 w-4" />
@@ -465,7 +453,7 @@ export function ResumePreferencesTab() {
       <SectionCard
         icon={<FileText className="h-4 w-4 text-[#4F8CFF]" />}
         title="Profile Core"
-        subtitle="Foundational data that feeds into every resume generation"
+        subtitle="Foundational client context that feeds job scoping, tailored resumes, and AI guidance across the platform"
       >
         <div>
           <FieldLabel hint="Tell the AI who you are — this becomes the resume intro.">
@@ -637,186 +625,6 @@ export function ResumePreferencesTab() {
         </div>
       </SectionCard>
 
-      {/* ── Section 4: AI Behaviour Control ──────────────────────────────── */}
-      <SectionCard
-        icon={<Brain className="h-4 w-4 text-[#4F8CFF]" />}
-        title="AI Behaviour Control"
-        subtitle="Tell the AI how to write — tone, format, and focus"
-      >
-        <div>
-          <FieldLabel hint="How the AI frames your experience.">Writing Tone</FieldLabel>
-          <SegmentedControl
-            value={form.aiTone}
-            onChange={(v) => update("aiTone", v)}
-            options={[
-              { value: "concise",       label: "Concise"       },
-              { value: "impact-driven", label: "Impact-driven" },
-              { value: "technical",     label: "Technical"     },
-            ]}
-          />
-          <p className="text-[11px] text-[#4B5563] mt-1.5">
-            {form.aiTone === "concise"       && "Short, punchy bullets. No filler."}
-            {form.aiTone === "impact-driven" && "Metric-led statements. Emphasises outcomes."}
-            {form.aiTone === "technical"     && "Depth-first. Great for engineering roles."}
-          </p>
-        </div>
-
-        <div>
-          <FieldLabel hint="Output format — balances readability vs. machine parsing.">Resume Style</FieldLabel>
-          <SegmentedControl
-            value={form.resumeStyle}
-            onChange={(v) => update("resumeStyle", v)}
-            options={[
-              { value: "ats-safe",      label: "ATS-safe"       },
-              { value: "balanced",      label: "Balanced"        },
-              { value: "human-friendly", label: "Human-friendly" },
-            ]}
-          />
-          <p className="text-[11px] text-[#4B5563] mt-1.5">
-            {form.resumeStyle === "ats-safe"       && "Plain structure, no tables. Optimised for parsers."}
-            {form.resumeStyle === "balanced"       && "Clean layout that reads well for both humans and bots."}
-            {form.resumeStyle === "human-friendly" && "Narrative flow, more personality. Best for startups."}
-          </p>
-        </div>
-
-        <div>
-          <FieldLabel hint="How each bullet is structured.">Bullet Style</FieldLabel>
-          <SegmentedControl
-            value={form.bulletStyle}
-            onChange={(v) => update("bulletStyle", v)}
-            options={[
-              { value: "metrics-heavy",         label: "Metrics-heavy"         },
-              { value: "responsibility-focused", label: "Responsibility-focused" },
-            ]}
-          />
-          <p className="text-[11px] text-[#4B5563] mt-1.5">
-            {form.bulletStyle === "metrics-heavy"         && "Led by numbers: \"Reduced churn by 18%…\""}
-            {form.bulletStyle === "responsibility-focused" && "Led by action: \"Owned roadmap for…\""}
-          </p>
-        </div>
-      </SectionCard>
-
-      {/* ── Section 5: ATS Optimisation + Cover Letter ────────────────────── */}
-      <SectionCard
-        icon={<BarChart2 className="h-4 w-4 text-[#4F8CFF]" />}
-        title="Optimisation Settings"
-        subtitle="Fine-tune ATS keyword density and cover letter generation"
-      >
-        <div>
-          <FieldLabel hint="How aggressively the AI stuffs keywords to beat ATS parsers.">
-            ATS Optimisation Level
-          </FieldLabel>
-          <SegmentedControl
-            value={form.atsLevel}
-            onChange={(v) => update("atsLevel", v)}
-            options={[
-              { value: "basic",      label: "Basic"      },
-              { value: "balanced",   label: "Balanced"   },
-              { value: "aggressive", label: "Aggressive" },
-            ]}
-          />
-          <div className="flex items-center gap-2 mt-2 p-2.5 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-            <div className="flex gap-1 flex-1">
-              {["basic","balanced","aggressive"].map((l) => (
-                <div
-                  key={l}
-                  className="h-1 flex-1 rounded-full transition-all"
-                  style={{ background: form.atsLevel === l || (form.atsLevel === "balanced" && l === "basic") || (form.atsLevel === "aggressive") ? "#4F8CFF" : "#1F2937" }}
-                />
-              ))}
-            </div>
-            <span className="text-[11px] text-[#6B7280]">
-              {form.atsLevel === "basic"      && "Minimal keyword injection"}
-              {form.atsLevel === "balanced"   && "Moderate density — recommended"}
-              {form.atsLevel === "aggressive" && "Max keyword match — risk of over-stuffing"}
-            </span>
-          </div>
-        </div>
-
-        <div className="pt-1 border-t border-[#1F2937]">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[13px] font-medium text-white">Generate Cover Letters</p>
-              <p className="text-[11px] text-[#6B7280] mt-0.5">Personalised cover letter per application</p>
-            </div>
-            <Switch
-              checked={form.includeCoverLetters}
-              onCheckedChange={(v) => update("includeCoverLetters", v)}
-            />
-          </div>
-        </div>
-
-        {form.includeCoverLetters && (
-          <div className="space-y-3 pt-1">
-            <div>
-              <FieldLabel>Cover Letter Tone</FieldLabel>
-              <SegmentedControl
-                value={form.coverLetterTone}
-                onChange={(v) => update("coverLetterTone", v)}
-                options={[
-                  { value: "formal",     label: "Formal"     },
-                  { value: "confident",  label: "Confident"  },
-                  { value: "friendly",   label: "Friendly"   },
-                ]}
-              />
-            </div>
-            <div>
-              <FieldLabel>Length</FieldLabel>
-              <SegmentedControl
-                value={form.coverLetterLength}
-                onChange={(v) => update("coverLetterLength", v)}
-                options={[
-                  { value: "short",    label: "Short (~150 words)"   },
-                  { value: "medium",   label: "Medium (~250 words)"  },
-                  { value: "detailed", label: "Detailed (~400 words)" },
-                ]}
-              />
-            </div>
-            <div>
-              <FieldLabel hint="How much the letter references the specific company and role.">
-                Personalisation Level
-              </FieldLabel>
-              <SegmentedControl
-                value={form.coverLetterPersonalization}
-                onChange={(v) => update("coverLetterPersonalization", v)}
-                options={[
-                  { value: "low",    label: "Generic"       },
-                  { value: "medium", label: "Personalised"  },
-                  { value: "high",   label: "Deep-dived"    },
-                ]}
-              />
-            </div>
-          </div>
-        )}
-      </SectionCard>
-
-      {/* ── Section 6: AI Safety Rules ────────────────────────────────────── */}
-      <SectionCard
-        icon={<Shield className="h-4 w-4 text-[#4F8CFF]" />}
-        title="AI Safety Rules"
-        subtitle="Guardrails that prevent the AI from misrepresenting your experience"
-      >
-        {(
-          [
-            ["noFakeExperience",    "Do not add fake experience",       "AI will never invent jobs, projects, or skills you haven't listed."],
-            ["noChangeTitles",      "Do not change job titles",          "Your exact titles are preserved — no promotion inflation."],
-            ["noExaggerateMetrics", "Do not exaggerate metrics",         "Numbers in your key achievements are used verbatim."],
-            ["onlyRephrase",        "Only rephrase & reorder content",   "AI restructures for clarity but never adds new facts."],
-          ] as [keyof FormState, string, string][]
-        ).map(([key, label, desc]) => (
-          <div key={key} className="flex items-start justify-between gap-4 py-1">
-            <div className="min-w-0">
-              <p className="text-[13px] font-medium text-white">{label}</p>
-              <p className="text-[11px] text-[#6B7280] mt-0.5">{desc}</p>
-            </div>
-            <Switch
-              checked={form[key] as boolean}
-              onCheckedChange={(v) => update(key, v)}
-            />
-          </div>
-        ))}
-      </SectionCard>
-
       {/* ── Bottom save button (convenience for long scroll) ─────────────── */}
       <div className="flex justify-end pt-2 pb-4">
         <Button
@@ -826,7 +634,7 @@ export function ResumePreferencesTab() {
         >
           {saving
             ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
-            : <><CheckCircle2 className="h-4 w-4" /> Save changes</>
+            : <><CheckCircle2 className="h-4 w-4" /> Save master resume</>
           }
         </Button>
       </div>

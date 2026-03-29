@@ -4,7 +4,6 @@ import {
   Download,
   Eye,
   Plus,
-  X,
   Loader2,
   AlertCircle,
   Sparkles,
@@ -12,10 +11,8 @@ import {
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { documentsService, DocumentItem, DocumentDetail } from "../services/documents.service";
-
-const BASE_URL = (import.meta as unknown as { env: Record<string, string> }).env
-  ?.VITE_API_URL ?? "/api";
+import { documentsService, DocumentItem } from "../services/documents.service";
+import { DocumentPreviewModal } from "../components/documents/DocumentPreviewModal";
 
 /* ─── helpers ──────────────────────────────────────────────────────────── */
 
@@ -43,89 +40,6 @@ function formatDate(iso: string): string {
   }
 }
 
-/* ─── View modal ───────────────────────────────────────────────────────── */
-
-function ViewModal({
-  doc,
-  onClose,
-}: {
-  doc: DocumentItem;
-  onClose: () => void;
-}) {
-  const [detail, setDetail] = useState<DocumentDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    documentsService
-      .get(doc.id)
-      .then(setDetail)
-      .catch((err) => setError((err as Error).message))
-      .finally(() => setLoading(false));
-  }, [doc.id]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-      <div className="bg-[#111827] border border-[#1F2937] rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
-        {/* Header */}
-        <div className="flex items-start justify-between p-5 border-b border-[#1F2937]">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-[16px] font-semibold text-white leading-tight truncate pr-4">
-              {doc.title}
-            </h2>
-            {doc.jobTitle && (
-              <p className="text-[12px] text-[#9CA3AF] mt-0.5">
-                Tailored for: {doc.jobTitle}{doc.company ? ` at ${doc.company}` : ""}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            className="text-[#6B7280] hover:text-white transition-colors shrink-0"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 text-[#4F8CFF] animate-spin" />
-            </div>
-          ) : error ? (
-            <div className="flex items-center gap-2 text-[#EF4444] text-[13px]">
-              <AlertCircle className="h-4 w-4" />
-              {error}
-            </div>
-          ) : (
-            <pre className="text-[12px] text-[#D1D5DB] font-mono whitespace-pre-wrap leading-relaxed">
-              {detail?.content_text ?? "No content available."}
-            </pre>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-4 border-t border-[#1F2937]">
-          <a
-            href={documentsService.downloadUrl(doc.id)}
-            className="flex items-center gap-2 px-4 py-2 bg-[#1F2937] hover:bg-[#374151] text-white text-[13px] font-medium rounded-lg border border-[#374151] transition-all"
-          >
-            <Download className="h-4 w-4" />
-            Download
-          </a>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-[#9CA3AF] hover:text-white text-[13px] transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ─── Resume card ──────────────────────────────────────────────────────── */
 
 function ResumeCard({
@@ -135,6 +49,7 @@ function ResumeCard({
   doc: DocumentItem;
   onView: (doc: DocumentItem) => void;
 }) {
+  const [downloading, setDownloading] = useState(false);
   const isAiGenerated = doc.origin === "ai_generated";
   const isTailored = doc.resumeType === "tailored";
 
@@ -209,13 +124,22 @@ function ResumeCard({
           <Eye className="h-4 w-4 mr-2" />
           View
         </Button>
-        <a
-          href={`${BASE_URL}${documentsService.downloadUrl(doc.id)}`}
+        <button
+          type="button"
+          onClick={async () => {
+            setDownloading(true);
+            try {
+              await documentsService.download(doc.id);
+            } finally {
+              setDownloading(false);
+            }
+          }}
           className="flex items-center justify-center h-8 w-8 bg-[#1F2937] hover:bg-[#374151] text-white rounded-md transition-colors"
           title="Download"
+          disabled={downloading}
         >
-          <Download className="h-4 w-4" />
-        </a>
+          {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        </button>
       </div>
     </Card>
   );
@@ -308,7 +232,7 @@ export function ResumeVault() {
       </Card>
 
       {/* View modal */}
-      {viewing && <ViewModal doc={viewing} onClose={() => setViewing(null)} />}
+      {viewing && <DocumentPreviewModal doc={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }

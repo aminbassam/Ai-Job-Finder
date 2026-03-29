@@ -12,7 +12,10 @@ import { requireAuth } from "../middleware/auth";
 import { pool } from "../db/pool";
 import { runPipeline, PipelineProfile } from "../services/pipeline";
 import { fetchImportedJobDetails } from "../services/import-metadata";
+import { buildAiPreferenceNotes, buildAiSystemPrompt, getGlobalAiSettings } from "../services/ai-global-settings";
+import { getDefaultMasterResumeContext } from "../services/master-resume";
 import { scoreJobWithAi } from "../services/ai-scorer";
+import { markdownToPlainText, renderResumeHtml } from "../services/resume-renderer";
 import { decrypt } from "../utils/encryption";
 
 const router = Router();
@@ -20,6 +23,20 @@ router.use(requireAuth);
 
 const DEFAULT_SOURCES = ["greenhouse", "lever", "google"];
 const VALID_SCHEDULES = new Set(["6h", "daily", "weekdays", "custom", "manual"]);
+
+function isPlaceholderImportTitle(value: unknown): boolean {
+  if (typeof value !== "string") return true;
+  const title = value.trim();
+  if (!title) return true;
+  return /^(LinkedIn Job|Indeed Job|Greenhouse Job|Lever Job|Ashby Job|Workday Job|Job at )/i.test(title);
+}
+
+function isPlaceholderCompany(value: unknown): boolean {
+  if (typeof value !== "string") return true;
+  const company = value.trim();
+  if (!company) return true;
+  return /listing$/i.test(company) || /^(Indeed|LinkedIn|Greenhouse|Lever|Ashby|Workday)$/i.test(company);
+}
 
 function normalizeTextList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -423,9 +440,23 @@ router.get("/results", async (req, res) => {
     params.push(parseInt(limit), parseInt(offset));
     const { rows } = await pool.query(
       `SELECT jm.*,
-              sp.name AS profile_name
+              sp.name AS profile_name,
+              rd.id AS resume_id,
+              rd.title AS resume_title,
+              rd.updated_at AS resume_updated_at,
+              rd.resume_type AS resume_type
        FROM job_matches jm
        LEFT JOIN search_profiles sp ON sp.id = jm.profile_id
+       LEFT JOIN LATERAL (
+         SELECT d.id, d.title, d.updated_at, d.resume_type
+         FROM documents d
+         WHERE d.user_id = jm.user_id
+           AND d.kind = 'resume'
+           AND d.resume_type = 'tailored'
+           AND d.metadata->>'jobMatchId' = jm.id::text
+         ORDER BY d.updated_at DESC
+         LIMIT 1
+       ) rd ON true
        WHERE ${where.join(" AND ")}
        ORDER BY jm.ai_score DESC NULLS LAST, jm.created_at DESC
        LIMIT $${i} OFFSET $${i + 1}`,
@@ -436,6 +467,44 @@ router.get("/results", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to load results." });
+  }
+});
+
+// GET /api/agent/results/:id
+router.get("/results/:id", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT jm.*,
+              sp.name AS profile_name,
+              rd.id AS resume_id,
+              rd.title AS resume_title,
+              rd.updated_at AS resume_updated_at,
+              rd.resume_type AS resume_type
+       FROM job_matches jm
+       LEFT JOIN search_profiles sp ON sp.id = jm.profile_id
+       LEFT JOIN LATERAL (
+         SELECT d.id, d.title, d.updated_at, d.resume_type
+         FROM documents d
+         WHERE d.user_id = jm.user_id
+           AND d.kind = 'resume'
+           AND d.resume_type = 'tailored'
+           AND d.metadata->>'jobMatchId' = jm.id::text
+         ORDER BY d.updated_at DESC
+         LIMIT 1
+       ) rd ON true
+       WHERE jm.id = $1 AND jm.user_id = $2
+       LIMIT 1`,
+      [req.params.id, req.userId]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Job not found." });
+    }
+
+    res.json(toMatch(rows[0]));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to load job." });
   }
 });
 
@@ -454,6 +523,26 @@ router.patch("/results/:id/status", async (req, res) => {
     res.json({ ok: true });
   } catch {
     res.status(500).json({ message: "Failed to update status." });
+  }
+});
+
+// DELETE /api/agent/results/:id
+router.delete("/results/:id", async (req, res) => {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM job_matches
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.userId]
+    );
+
+    if (!rowCount) {
+      return res.status(404).json({ message: "Job not found." });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to delete job." });
   }
 });
 
@@ -478,7 +567,10 @@ router.post("/import", async (req, res) => {
       : null;
 
   // Auto-generate title from URL if not supplied
-  let resolvedTitle = (title ?? "").trim() || (imported?.title ?? "");
+  let resolvedTitle =
+    imported?.title && isPlaceholderImportTitle(title)
+      ? imported.title
+      : (title ?? "").trim() || (imported?.title ?? "");
   if (!resolvedTitle && sourceUrl) {
     try {
       const u = new URL(sourceUrl);
@@ -493,6 +585,7 @@ router.post("/import", async (req, res) => {
   }
 
   const resolvedCompany =
+    (imported?.company && isPlaceholderCompany(company) ? imported.company : undefined) ??
     (typeof company === "string" && company.trim() ? company.trim() : undefined) ??
     imported?.company ??
     null;
@@ -632,6 +725,8 @@ router.post("/results/:id/generate-resume", async (req, res) => {
   const matchId = req.params.id;
 
   try {
+    const globalAi = await getGlobalAiSettings(req.userId!);
+
     // 1. Fetch job_matches row
     const { rows: matchRows } = await pool.query(
       `SELECT * FROM job_matches WHERE id = $1 AND user_id = $2`,
@@ -677,24 +772,41 @@ router.post("/results/:id/generate-resume", async (req, res) => {
     const prefs = prefRows[0] ?? {};
 
     const { rows: profileRows } = await pool.query<Record<string, unknown>>(
-      `SELECT up.professional_summary, up.years_experience,
+      `SELECT u.first_name, u.last_name, u.email, u.location_text,
+              u.current_job_title, u.linkedin_url,
+              up.professional_summary, up.years_experience,
+              up.min_salary_usd, up.max_salary_usd,
               COALESCE(
                 json_agg(us.skill_name ORDER BY us.years_experience DESC NULLS LAST)
                   FILTER (WHERE us.skill_name IS NOT NULL),
                 '[]'
               ) AS skills
-       FROM user_profiles up
-       LEFT JOIN user_skills us ON us.user_id = up.user_id
-       WHERE up.user_id = $1
-       GROUP BY up.user_id, up.professional_summary, up.years_experience`,
+       FROM account_users u
+       LEFT JOIN user_profiles up ON up.user_id = u.id
+       LEFT JOIN user_skills us ON us.user_id = u.id
+       WHERE u.id = $1
+       GROUP BY u.id, u.first_name, u.last_name, u.email, u.location_text,
+                u.current_job_title, u.linkedin_url,
+                up.professional_summary, up.years_experience, up.min_salary_usd, up.max_salary_usd`,
       [req.userId]
     );
     const profile = profileRows[0] ?? {};
 
     // 4. Build resume generation prompt
     const candidateLines: string[] = [];
+    const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
+    if (fullName) candidateLines.push(`Full name: ${fullName}`);
+    if (profile.email) candidateLines.push(`Email: ${profile.email}`);
+    if (profile.location_text) candidateLines.push(`Location: ${profile.location_text}`);
+    if (profile.current_job_title) candidateLines.push(`Current title: ${profile.current_job_title}`);
+    if (profile.linkedin_url) candidateLines.push(`LinkedIn: ${profile.linkedin_url}`);
     if (profile.professional_summary) candidateLines.push(`Summary: ${profile.professional_summary}`);
     if (profile.years_experience) candidateLines.push(`Years of experience: ${profile.years_experience}`);
+    if (profile.min_salary_usd || profile.max_salary_usd) {
+      candidateLines.push(
+        `Preferred salary range: ${profile.min_salary_usd ? `$${Math.round(Number(profile.min_salary_usd) / 1000)}k` : ""}${profile.min_salary_usd && profile.max_salary_usd ? " - " : ""}${profile.max_salary_usd ? `$${Math.round(Number(profile.max_salary_usd) / 1000)}k` : ""}`
+      );
+    }
     if (prefs.seniority_level) candidateLines.push(`Seniority level: ${prefs.seniority_level}`);
     if (Array.isArray(prefs.target_roles) && (prefs.target_roles as string[]).length > 0) {
       candidateLines.push(`Target roles: ${(prefs.target_roles as string[]).join(", ")}`);
@@ -717,6 +829,11 @@ router.post("/results/:id/generate-resume", async (req, res) => {
     if (Array.isArray(prefs.soft_skills) && (prefs.soft_skills as string[]).length > 0) {
       candidateLines.push(`Soft skills: ${(prefs.soft_skills as string[]).join(", ")}`);
     }
+    const masterResumeContext = await getDefaultMasterResumeContext(req.userId!);
+    if (masterResumeContext) {
+      candidateLines.push(`Structured master resume context:\n${masterResumeContext.slice(0, 5000)}`);
+    }
+    candidateLines.push(...buildAiPreferenceNotes(globalAi));
 
     const reqList = Array.isArray(job.requirements)
       ? (job.requirements as string[]).slice(0, 12).map((r: string) => `- ${r}`).join("\n")
@@ -739,12 +856,16 @@ Requirements:
 ${reqList}
 
 Instructions:
+- Use the candidate profile details exactly as provided for the resume header/contact section
 - Write a tailored professional summary (3-4 sentences) for THIS specific role
 - List the most relevant skills prominently
 - Use keywords directly from the job description
 - Format experience bullets with impact/metrics
 - Make every section directly relevant to the job
-- Output clean markdown with sections: Professional Summary, Core Skills, Professional Experience (use candidate's actual experience from profile), Education (placeholder if not provided), Certifications
+- Output clean markdown with sections: Header, Professional Summary, Core Skills, Professional Experience (use candidate's actual experience from profile and structured master resume context when available), Education (placeholder if not provided), Certifications
+- Use only markdown headings, plain paragraphs, and bullet lists
+- Do not use tables, code fences, or HTML
+- If profile data is missing, leave that field out instead of inventing it
 
 Return ONLY the markdown resume, no explanation.`;
 
@@ -758,7 +879,13 @@ Return ONLY the markdown resume, no explanation.`;
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: "You are an expert resume writer. Return only clean markdown." },
+          {
+            role: "system",
+            content: buildAiSystemPrompt(
+              "You are an expert resume writer. Return only clean markdown.",
+              globalAi
+            ),
+          },
           { role: "user", content: resumePrompt },
         ],
         temperature: 0.3,
@@ -774,29 +901,54 @@ Return ONLY the markdown resume, no explanation.`;
     }
 
     const aiData = await aiRes.json() as { choices?: { message?: { content?: string } }[] };
-    const contentText = aiData.choices?.[0]?.message?.content?.trim() ?? "";
+    const rawMarkdown = aiData.choices?.[0]?.message?.content?.trim() ?? "";
 
-    if (!contentText) {
+    if (!rawMarkdown) {
       return res.status(502).json({ message: "AI returned an empty resume. Please try again." });
     }
 
     // 6. Save to documents table
     const docTitle = `Tailored Resume — ${job.title} at ${job.company ?? "Unknown"}`;
+    const contentText = markdownToPlainText(rawMarkdown);
+    const contentHtml = renderResumeHtml({
+      title: docTitle,
+      markdown: rawMarkdown,
+      formatting: {
+        titleFont: globalAi.resumeTitleFont,
+        bodyFont: globalAi.resumeBodyFont,
+        accentColor: globalAi.resumeAccentColor,
+        template: globalAi.resumeTemplate,
+        density: globalAi.resumeDensity,
+      },
+    });
     const metadata = JSON.stringify({
       jobMatchId: matchId,
       jobTitle: job.title,
       company: job.company,
       aiScore: job.ai_score,
       tier: job.match_tier,
+      formatting: {
+        titleFont: globalAi.resumeTitleFont,
+        bodyFont: globalAi.resumeBodyFont,
+        accentColor: globalAi.resumeAccentColor,
+        template: globalAi.resumeTemplate,
+        density: globalAi.resumeDensity,
+      },
     });
 
     const { rows: docRows } = await pool.query(
-      `INSERT INTO documents (user_id, kind, resume_type, origin, title, content_text, metadata)
-       VALUES ($1, 'resume', 'tailored', 'ai_generated', $2, $3, $4::jsonb)
+      `INSERT INTO documents (user_id, kind, resume_type, origin, title, content_text, content_html, metadata)
+       VALUES ($1, 'resume', 'tailored', 'ai_generated', $2, $3, $4, $5::jsonb)
        RETURNING id`,
-      [req.userId, docTitle, contentText, metadata]
+      [req.userId, docTitle, contentText, contentHtml, metadata]
     );
     const documentId = docRows[0].id as string;
+
+    await pool.query(
+      `INSERT INTO document_versions (document_id, version_no, content_text, content_html)
+       VALUES ($1, 1, $2, $3)`,
+      [documentId, contentText, contentHtml]
+    );
 
     // 7. Mark resume_generated on the job match
     await pool.query(
@@ -807,7 +959,13 @@ Return ONLY the markdown resume, no explanation.`;
     res.json({
       documentId,
       title: docTitle,
-      message: "Resume generated and saved to Resume Vault.",
+      resume: {
+        id: documentId,
+        title: docTitle,
+        lastModified: new Date().toISOString(),
+        resumeType: "tailored",
+      },
+      message: "Resume generated and attached to this job.",
     });
   } catch (err) {
     console.error("[generate-resume]", (err as Error).message);
@@ -894,6 +1052,12 @@ function toMatch(r: Record<string, unknown>) {
     scoredAt: r.scored_at,
     status: r.status,
     resumeGenerated: r.resume_generated,
+    linkedResume: r.resume_id ? {
+      id: r.resume_id,
+      title: r.resume_title,
+      lastModified: r.resume_updated_at,
+      resumeType: r.resume_type,
+    } : undefined,
     notes: r.notes,
     postedAt: r.posted_at,
     createdAt: r.created_at,

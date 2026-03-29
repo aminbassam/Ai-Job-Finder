@@ -5,6 +5,7 @@ A full-stack SaaS platform with an **autonomous job discovery engine** at its co
 Developer onboarding:
 
 - [docs/day-one-developer-onboarding.md](/Users/aminbassam/Documents/Cursor/Job Finder/docs/day-one-developer-onboarding.md)
+- [docs/master-resume-system.md](/Users/aminbassam/Documents/Cursor/Job Finder/docs/master-resume-system.md)
 
 ---
 
@@ -15,14 +16,17 @@ Developer onboarding:
   src/app/
     contexts/                  ← AuthContext (JWT session + user state)
     services/                  ← api.ts, auth.service.ts, profile.service.ts,
-    |                             settings.service.ts, agent.service.ts
+    |                             settings.service.ts, agent.service.ts,
+    |                             masterResume.service.ts
     pages/                     ← Dashboard, JobAgent, JobBoard, Resume, ResumeVault,
     |                             Applications, Analytics, Settings
+    pages/master-resume/       ← ProfilesWorkspace, ImportWorkspace
     pages/agent/               ← ProfilesTab, SourcesTab, ResultsTab, ImportTab, RunsTab
-    pages/settings/            ← ResumePreferencesTab (AI resume engine), AiProvidersTab
+    pages/settings/            ← ResumePreferencesTab, AiProvidersTab, GlobalAiSettingsTab
     pages/admin/               ← AdminUsers dashboard
     pages/auth/                ← Login, Signup, ForgotPassword, VerifyEmail (OTP)
     components/ui/             ← shadcn/ui components + TagInput, LocationInput
+    components/documents/      ← document preview modal
     components/auth/           ← ProtectedRoute, GuestRoute
     components/layouts/        ← RootLayout, AppSidebar
   index.html
@@ -40,6 +44,8 @@ Developer onboarding:
     routes/jobs.ts             ← GET/POST /api/jobs/*
     routes/profile.ts          ← GET/PUT /api/profile
     routes/agent.ts            ← GET/POST /api/agent/* (profiles, results, connectors, import)
+    routes/master-resume.ts    ← GET/POST/PUT/DELETE /api/master-resume/*
+    routes/ai.ts               ← POST /api/ai/* (resume parse, bullets, summary, score)
     routes/applications.ts     ← GET/POST/PUT /api/applications
     routes/activity.ts         ← GET /api/activity
     routes/analytics.ts        ← GET /api/analytics/*
@@ -48,6 +54,12 @@ Developer onboarding:
     routes/admin.ts            ← GET/PATCH/DELETE /api/admin/*
     services/pipeline.ts       ← Match pipeline: normalize → score → tier → persist
     services/scheduler.ts      ← node-cron scheduler (polls every 30 min)
+    services/master-resume.ts  ← structured master resume persistence + aggregate loading
+    services/master-resume-import.ts ← LinkedIn/PDF/DOCX import parsing + normalization
+    services/master-resume-score.ts  ← ATS / impact / completeness / MQ scoring
+    services/ai-client.ts      ← shared OpenAI helper for JSON/chat completions
+    services/resume-renderer.ts← rich resume HTML rendering
+    services/pdf.ts            ← PDF generation for downloads
     services/connectors/
       base.ts                  ← Connector interface + shared title-match helper
       greenhouse.ts            ← Greenhouse public board API (Lane 1)
@@ -66,6 +78,9 @@ Developer onboarding:
     003_resume_preferences.sql ← resume_preferences table (AI engine config)
     004_ai_provider_fields.sql ← encrypted key columns + current_job_title/linkedin_url
     005_job_agent.sql          ← search_profiles, job_matches, connector_configs, agent_runs
+    009_global_ai_settings.sql ← shared AI settings / custom prompt controls
+    010_resume_rich_formatting.sql ← rich resume HTML + formatting settings
+    011_multi_profile_master_resume.sql ← structured multi-profile master resume system
 
 /docker-compose.yml            ← PostgreSQL 16 container
 ```
@@ -229,9 +244,25 @@ Fetch from connectors → Filter excluded companies → Score (0-100)
 ---
 
 ### Resume (`/resume`)
-Standalone page in the main navigation:
-- **Resume Readiness Score** — prominent SVG ring (0–100), color-coded green/amber/red
-- Full AI resume engine configuration (same as Settings → Resume Preferences)
+The Resume area is now the **Master Resume** hub.
+
+It includes:
+- multiple structured Master Resume profiles per user
+- LinkedIn import
+- PDF / DOCX resume upload
+- structured experience, bullets, skills, projects, and leadership editing
+- AI summary generation
+- AI bullet generation
+- ATS / impact / completeness / MQ scoring against a job description
+- import history + parsed JSON preview
+
+Important behavior:
+- the Master Resume is a structured data layer, not just a document
+- the default Master Resume profile feeds AI job scoring and tailored resume generation elsewhere in the platform
+- legacy resume preferences still exist for compatibility, but structured profiles are now the main source of truth
+
+See:
+- [docs/master-resume-system.md](/Users/aminbassam/Documents/Cursor/Job Finder/docs/master-resume-system.md)
 
 ### Authentication
 - Signup / Login with JWT (7-day sessions, revocable)
@@ -258,6 +289,25 @@ Standalone page in the main navigation:
 | **AI Safety Rules** | 4 guardrail toggles: no fake experience, no title changes, no exaggerated metrics, only rephrase |
 
 **Resume Readiness Score** — live SVG ring, color-coded, shows which fields are missing.
+
+### Settings — AI Settings
+
+Global AI behavior is now centralized in Settings and shared across the platform.
+
+This includes:
+- AI behavior control
+- optimization settings
+- AI safety rules
+- custom AI roles
+- default AI instructions
+- resume formatting controls
+- Google Fonts selections for resume title/body fonts
+
+These settings are used by:
+- AI resume generation
+- AI resume improvement
+- AI job scoring
+- Master Resume parsing and generation flows
 **Auto-save** — debounced 2s after any change, with "Saved Xs ago" indicator.
 
 ### Settings — AI Providers

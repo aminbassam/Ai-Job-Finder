@@ -56,6 +56,38 @@ function extractTitle(html: string): string | undefined {
   return firstMatch(html, [/<title[^>]*>([\s\S]*?)<\/title>/i]);
 }
 
+function normalizeJobTitle(value?: string): string | undefined {
+  if (!value) return undefined;
+  let title = stripTags(value)
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!title) return undefined;
+
+  const separators = [" | ", " - ", " :: ", " — ", " · "];
+  for (const separator of separators) {
+    const parts = title.split(separator).map((part) => part.trim()).filter(Boolean);
+    if (parts.length <= 1) continue;
+
+    const candidate = parts.find((part) =>
+      /\b(manager|engineer|designer|director|lead|specialist|analyst|coordinator|producer|developer|architect|consultant|administrator|scientist|writer|editor|officer|assistant|recruiter|strategist)\b/i.test(part)
+    );
+    if (candidate && candidate.length >= 6) {
+      title = candidate;
+      break;
+    }
+  }
+
+  title = title
+    .replace(/\bskip to main content\b/gi, " ")
+    .replace(/\bexpand search\b/gi, " ")
+    .replace(/\bjobs\b$/i, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return title || undefined;
+}
+
 function parseSalaryText(value?: string): { salaryMin?: number; salaryMax?: number } {
   if (!value) return {};
   const matches = [...value.matchAll(/\$?\s?(\d[\d,]{1,8})(?:\s*[kK])?/g)];
@@ -232,7 +264,7 @@ export async function fetchImportedJobDetails(sourceUrl: string): Promise<Import
 
   return {
     sourceUrl: response.url,
-    title: rawTitle ? stripTags(rawTitle) : undefined,
+    title: normalizeJobTitle(rawTitle),
     company: company ? stripTags(company) : undefined,
     location: location ? stripTags(location) : undefined,
     description: rawDescription ? stripTags(rawDescription) : undefined,

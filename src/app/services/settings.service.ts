@@ -12,7 +12,41 @@ export interface AiProviderInfo {
   lastError?:      string;
 }
 
+export interface GlobalAiSettings {
+  autoOptimizeAts?: boolean;
+  includeCoverLetters?: boolean;
+  notifyNewMatches?: boolean;
+  notifyApplicationUpdates?: boolean;
+  notifyWeeklySummary?: boolean;
+  notifyAiInsights?: boolean;
+  defaultAiProvider?: "openai" | "anthropic" | "other";
+  aiTone?: "concise" | "impact-driven" | "technical";
+  resumeStyle?: "ats-safe" | "balanced" | "human-friendly";
+  bulletStyle?: "metrics-heavy" | "responsibility-focused";
+  atsLevel?: "basic" | "balanced" | "aggressive";
+  coverLetterTone?: "formal" | "friendly" | "confident";
+  coverLetterLength?: "short" | "medium" | "detailed";
+  coverLetterPersonalization?: "low" | "medium" | "high";
+  noFakeExperience?: boolean;
+  noChangeTitles?: boolean;
+  noExaggerateMetrics?: boolean;
+  onlyRephrase?: boolean;
+  aiCustomRoles?: string[];
+  aiDefaultInstructions?: string | null;
+  resumeTitleFont?: "Playfair Display" | "Poppins" | "Space Grotesk" | "Merriweather" | "Libre Baskerville";
+  resumeBodyFont?: "Source Sans 3" | "Inter" | "Lora" | "IBM Plex Sans" | "Work Sans";
+  resumeAccentColor?: string;
+  resumeTemplate?: "modern" | "classic" | "compact";
+  resumeDensity?: "comfortable" | "balanced" | "compact";
+}
+
 export const settingsService = {
+  getPreferences: (): Promise<GlobalAiSettings> =>
+    api.get<GlobalAiSettings>("/settings/preferences"),
+
+  updatePreferences: (data: Partial<GlobalAiSettings>): Promise<{ message: string }> =>
+    api.put<{ message: string }>("/settings/preferences", data),
+
   getAiProviders: (): Promise<AiProviderInfo[]> =>
     api.get<AiProviderInfo[]>("/settings/ai-providers"),
 

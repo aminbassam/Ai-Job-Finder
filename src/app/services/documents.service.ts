@@ -1,5 +1,9 @@
 import { api } from "./api";
 
+const BASE_URL = (import.meta as unknown as { env: Record<string, string> }).env
+  ?.VITE_API_URL ?? "/api";
+const SESSION_KEY = "jobflow_auth";
+
 export interface DocumentItem {
   id: string;
   kind: "resume" | "cover_letter";
@@ -15,6 +19,8 @@ export interface DocumentItem {
 
 export interface DocumentDetail extends DocumentItem {
   content_text?: string;
+  content_html?: string;
+  metadata?: Record<string, unknown>;
   versions: { version_no: number; change_summary: string; created_at: string }[];
 }
 
@@ -26,4 +32,31 @@ export const documentsService = {
     api.get<DocumentDetail>(`/documents/${id}`),
 
   downloadUrl: (id: string) => `/documents/${id}/download`,
+
+  download: async (id: string): Promise<void> => {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    const token = raw ? (JSON.parse(raw) as { token?: string }).token : null;
+    const response = await fetch(`${BASE_URL}/documents/${id}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+
+    if (!response.ok) {
+      const message = await response.text().catch(() => "");
+      throw new Error(message || "Failed to download document.");
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const disposition = response.headers.get("Content-Disposition") ?? "";
+    const match = disposition.match(/filename="([^"]+)"/i);
+    const filename = match?.[1] ?? "resume.pdf";
+
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  },
 };

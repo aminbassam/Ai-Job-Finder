@@ -66,6 +66,12 @@ export interface JobMatch {
   scoredAt?: string;
   status: "new" | "viewed" | "saved" | "applied" | "dismissed";
   resumeGenerated?: boolean;
+  linkedResume?: {
+    id: string;
+    title: string;
+    lastModified: string;
+    resumeType?: "master" | "tailored";
+  };
   notes?: string;
   postedAt?: string;
   createdAt: string;
@@ -148,6 +154,12 @@ export const getResults = (q: ResultsQuery = {}) => {
 export const setMatchStatus = (id: string, status: JobMatch["status"]) =>
   api.patch<{ ok: boolean }>(`/agent/results/${id}/status`, { status });
 
+export const deleteMatch = (id: string) =>
+  api.delete<{ ok: boolean }>(`/agent/results/${id}`);
+
+export const getResult = (id: string) =>
+  api.get<JobMatch>(`/agent/results/${id}`);
+
 /* ──────────────────── Import ────────────────────────────────────────── */
 
 export interface ImportPayload {
@@ -172,7 +184,17 @@ export const getRuns = () =>
 /* ──────────────────── Resume generation ─────────────────────────────── */
 
 export const generateResume = (matchId: string) =>
-  api.post<{ documentId: string; title: string; message: string }>(
+  api.post<{
+    documentId: string;
+    title: string;
+    message: string;
+    resume?: {
+      id: string;
+      title: string;
+      lastModified: string;
+      resumeType?: "master" | "tailored";
+    };
+  }>(
     `/agent/results/${matchId}/generate-resume`,
     {}
   );

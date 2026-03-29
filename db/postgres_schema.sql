@@ -157,6 +157,24 @@ CREATE TABLE user_preferences (
   notify_weekly_summary boolean NOT NULL DEFAULT true,
   notify_ai_insights boolean NOT NULL DEFAULT false,
   default_ai_provider ai_provider NOT NULL DEFAULT 'openai',
+  ai_tone text NOT NULL DEFAULT 'impact-driven',
+  resume_style text NOT NULL DEFAULT 'balanced',
+  bullet_style text NOT NULL DEFAULT 'metrics-heavy',
+  ats_level text NOT NULL DEFAULT 'balanced',
+  cover_letter_tone text NOT NULL DEFAULT 'confident',
+  cover_letter_length text NOT NULL DEFAULT 'medium',
+  cover_letter_personalization text NOT NULL DEFAULT 'medium',
+  no_fake_experience boolean NOT NULL DEFAULT true,
+  no_change_titles boolean NOT NULL DEFAULT true,
+  no_exaggerate_metrics boolean NOT NULL DEFAULT true,
+  only_rephrase boolean NOT NULL DEFAULT true,
+  ai_custom_roles text[] NOT NULL DEFAULT '{}'::text[],
+  ai_default_instructions text,
+  resume_title_font text NOT NULL DEFAULT 'Playfair Display',
+  resume_body_font text NOT NULL DEFAULT 'Source Sans 3',
+  resume_accent_color text NOT NULL DEFAULT '#2563EB',
+  resume_template text NOT NULL DEFAULT 'modern',
+  resume_density text NOT NULL DEFAULT 'balanced',
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW()
 );
@@ -173,6 +191,101 @@ CREATE TABLE ai_provider_connections (
   created_at timestamptz NOT NULL DEFAULT NOW(),
   updated_at timestamptz NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, provider)
+);
+
+CREATE TABLE master_resumes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL UNIQUE REFERENCES account_users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE master_resume_imports (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES account_users(id) ON DELETE CASCADE,
+  source_type text NOT NULL CHECK (source_type IN ('linkedin', 'upload')),
+  source_url text,
+  file_name text,
+  raw_text text NOT NULL,
+  parsed_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE master_resume_profiles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  master_resume_id uuid NOT NULL REFERENCES master_resumes(id) ON DELETE CASCADE,
+  source_import_id uuid REFERENCES master_resume_imports(id) ON DELETE SET NULL,
+  name text NOT NULL,
+  target_roles text[] NOT NULL DEFAULT '{}'::text[],
+  summary text,
+  experience_years integer NOT NULL DEFAULT 0,
+  is_default boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE master_resume_experiences (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id uuid NOT NULL REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  company text NOT NULL,
+  start_date date,
+  end_date date,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE master_resume_bullets (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  experience_id uuid NOT NULL REFERENCES master_resume_experiences(id) ON DELETE CASCADE,
+  action text,
+  method text,
+  result text,
+  metric text,
+  tools text[] NOT NULL DEFAULT '{}'::text[],
+  keywords text[] NOT NULL DEFAULT '{}'::text[],
+  original_text text,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE master_resume_skills (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id uuid NOT NULL UNIQUE REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+  core text[] NOT NULL DEFAULT '{}'::text[],
+  tools text[] NOT NULL DEFAULT '{}'::text[],
+  soft text[] NOT NULL DEFAULT '{}'::text[],
+  certifications text[] NOT NULL DEFAULT '{}'::text[],
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE master_resume_projects (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id uuid NOT NULL REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  role text,
+  description text,
+  tools text[] NOT NULL DEFAULT '{}'::text[],
+  team_size integer,
+  outcome text,
+  metrics text,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE master_resume_leadership (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id uuid NOT NULL UNIQUE REFERENCES master_resume_profiles(id) ON DELETE CASCADE,
+  team_size integer,
+  scope text,
+  stakeholders text[] NOT NULL DEFAULT '{}'::text[],
+  budget text,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  updated_at timestamptz NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE job_search_runs (
@@ -328,6 +441,7 @@ CREATE TABLE documents (
   storage_path text,
   mime_type text,
   content_text text,
+  content_html text,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_from_document_id uuid REFERENCES documents(id) ON DELETE SET NULL,
   latest_version_no integer NOT NULL DEFAULT 1,
@@ -349,6 +463,7 @@ CREATE TABLE document_versions (
   version_no integer NOT NULL,
   storage_path text,
   content_text text,
+  content_html text,
   change_summary text,
   created_by_run_id uuid,
   created_at timestamptz NOT NULL DEFAULT NOW(),
@@ -504,6 +619,14 @@ CREATE INDEX idx_user_job_states_saved ON user_job_states(user_id, is_saved);
 CREATE INDEX idx_job_score_runs_user_job_created ON job_score_runs(user_id, job_id, created_at DESC);
 CREATE INDEX idx_documents_user_kind ON documents(user_id, kind, updated_at DESC);
 CREATE INDEX idx_documents_job_id ON documents(job_id);
+CREATE INDEX idx_master_resume_imports_user_created ON master_resume_imports(user_id, created_at DESC);
+CREATE INDEX idx_master_resume_profiles_master_resume ON master_resume_profiles(master_resume_id, created_at DESC);
+CREATE UNIQUE INDEX idx_master_resume_profiles_one_default
+ON master_resume_profiles(master_resume_id)
+WHERE is_default;
+CREATE INDEX idx_master_resume_experiences_profile ON master_resume_experiences(profile_id, sort_order, created_at);
+CREATE INDEX idx_master_resume_projects_profile ON master_resume_projects(profile_id, sort_order, created_at);
+CREATE INDEX idx_master_resume_bullets_experience ON master_resume_bullets(experience_id, sort_order, created_at);
 CREATE INDEX idx_document_versions_document_id ON document_versions(document_id, version_no DESC);
 CREATE INDEX idx_applications_user_status ON applications(user_id, status);
 CREATE INDEX idx_applications_job_id ON applications(job_id);
@@ -536,6 +659,34 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER trg_ai_provider_connections_updated_at
 BEFORE UPDATE ON ai_provider_connections
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_master_resumes_updated_at
+BEFORE UPDATE ON master_resumes
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_master_resume_profiles_updated_at
+BEFORE UPDATE ON master_resume_profiles
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_master_resume_experiences_updated_at
+BEFORE UPDATE ON master_resume_experiences
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_master_resume_bullets_updated_at
+BEFORE UPDATE ON master_resume_bullets
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_master_resume_skills_updated_at
+BEFORE UPDATE ON master_resume_skills
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_master_resume_projects_updated_at
+BEFORE UPDATE ON master_resume_projects
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_master_resume_leadership_updated_at
+BEFORE UPDATE ON master_resume_leadership
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TRIGGER trg_saved_searches_updated_at

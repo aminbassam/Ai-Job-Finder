@@ -7,8 +7,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "db:migrate":   "ts-node src/db/migrate.ts",
-    "db:seed":      "ts-node src/db/seed.ts",
+    "db:migrate": "ts-node src/db/migrate.ts",
+    "db:seed": "ts-node src/db/seed.ts",
     "db:fix-owner": "ts-node src/db/fix-owner.ts"
   },
   "dependencies": {
@@ -19,9 +19,12 @@
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.12.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^6.9.13",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.12.0",
+    "playwright": "^1.58.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {

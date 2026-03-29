@@ -7,6 +7,8 @@
  */
 import { pool } from "../db/pool";
 import { decrypt } from "../utils/encryption";
+import { buildAiPreferenceNotes, buildAiSystemPrompt, getGlobalAiSettings } from "./ai-global-settings";
+import { getDefaultMasterResumeContext } from "./master-resume";
 
 export interface AiScoreResult {
   score: number;
@@ -66,6 +68,7 @@ export async function scoreJobWithAi(
   userId: string,
   job: JobInput
 ): Promise<AiScoreOutcome> {
+  const globalAi = await getGlobalAiSettings(userId);
   // ── 1. Get the user's connected OpenAI key ────────────────────────────────
   const { rows: keyRows } = await pool.query<{
     encrypted_key: string;
@@ -151,6 +154,11 @@ export async function scoreJobWithAi(
   if (prefs.certifications) {
     candidateParts.push(`Certifications: ${String(prefs.certifications).slice(0, 200)}`);
   }
+  const masterResumeContext = await getDefaultMasterResumeContext(userId);
+  if (masterResumeContext) {
+    candidateParts.push(`Structured master resume context:\n${masterResumeContext.slice(0, 4000)}`);
+  }
+  candidateParts.push(...buildAiPreferenceNotes(globalAi));
 
   const jobParts: string[] = [
     `Title: ${job.title}`,
@@ -231,7 +239,7 @@ Respond ONLY with this JSON:
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: buildAiSystemPrompt(SYSTEM_PROMPT, globalAi) },
           { role: "user", content: userPrompt },
         ],
         response_format: { type: "json_object" },

@@ -6,7 +6,6 @@ import { JobAgent } from "./pages/JobAgent";
 import { JobBoard } from "./pages/JobBoard";
 import { JobDetail } from "./pages/JobDetail";
 import { Resume } from "./pages/Resume";
-import { ResumeVault } from "./pages/ResumeVault";
 import { Applications } from "./pages/Applications";
 import { Analytics } from "./pages/Analytics";
 import { Settings } from "./pages/Settings";
@@ -62,7 +61,7 @@ export const router = createBrowserRouter([
       { path: "jobs", Component: JobBoard },
       { path: "jobs/:id", Component: JobDetail },
       { path: "resume",  Component: Resume     },
-      { path: "resumes", Component: ResumeVault },
+      { path: "resumes", element: <Navigate to="/jobs" replace /> },
       { path: "applications", Component: Applications },
       { path: "analytics", Component: Analytics },
       { path: "settings", Component: Settings },

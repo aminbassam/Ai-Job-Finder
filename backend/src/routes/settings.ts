@@ -4,6 +4,7 @@ import { query, queryOne } from "../db/pool";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { encrypt, decrypt } from "../utils/encryption";
+import { buildAiPreferenceNotes, buildAiSystemPrompt, getGlobalAiSettings } from "../services/ai-global-settings";
 
 const router = Router();
 router.use(requireAuth);
@@ -16,11 +17,42 @@ router.get("/preferences", async (req: Request, res: Response): Promise<void> =>
       `SELECT auto_optimize_ats, include_cover_letters,
               notify_new_matches, notify_application_updates,
               notify_weekly_summary, notify_ai_insights,
-              default_ai_provider
+              default_ai_provider,
+              ai_tone, resume_style, bullet_style, ats_level,
+              cover_letter_tone, cover_letter_length, cover_letter_personalization,
+              no_fake_experience, no_change_titles, no_exaggerate_metrics, only_rephrase,
+              ai_custom_roles, ai_default_instructions,
+              resume_title_font, resume_body_font, resume_accent_color, resume_template, resume_density
        FROM user_preferences WHERE user_id = $1`,
       [req.userId]
     );
-    res.json(prefs ?? {});
+    res.json(prefs ? {
+      autoOptimizeAts: prefs.auto_optimize_ats,
+      includeCoverLetters: prefs.include_cover_letters,
+      notifyNewMatches: prefs.notify_new_matches,
+      notifyApplicationUpdates: prefs.notify_application_updates,
+      notifyWeeklySummary: prefs.notify_weekly_summary,
+      notifyAiInsights: prefs.notify_ai_insights,
+      defaultAiProvider: prefs.default_ai_provider,
+      aiTone: prefs.ai_tone,
+      resumeStyle: prefs.resume_style,
+      bulletStyle: prefs.bullet_style,
+      atsLevel: prefs.ats_level,
+      coverLetterTone: prefs.cover_letter_tone,
+      coverLetterLength: prefs.cover_letter_length,
+      coverLetterPersonalization: prefs.cover_letter_personalization,
+      noFakeExperience: prefs.no_fake_experience,
+      noChangeTitles: prefs.no_change_titles,
+      noExaggerateMetrics: prefs.no_exaggerate_metrics,
+      onlyRephrase: prefs.only_rephrase,
+      aiCustomRoles: prefs.ai_custom_roles,
+      aiDefaultInstructions: prefs.ai_default_instructions,
+      resumeTitleFont: prefs.resume_title_font,
+      resumeBodyFont: prefs.resume_body_font,
+      resumeAccentColor: prefs.resume_accent_color,
+      resumeTemplate: prefs.resume_template,
+      resumeDensity: prefs.resume_density,
+    } : {});
   } catch (err) {
     console.error("[settings/prefs/get]", err);
     res.status(500).json({ message: "Failed to fetch preferences." });
@@ -37,14 +69,86 @@ const prefsSchema = z.object({
   notifyWeeklySummary:      z.boolean().optional(),
   notifyAiInsights:         z.boolean().optional(),
   defaultAiProvider:        z.enum(["openai", "anthropic", "other"]).optional(),
+  aiTone:                   z.enum(["concise","impact-driven","technical"]).optional(),
+  resumeStyle:              z.enum(["ats-safe","balanced","human-friendly"]).optional(),
+  bulletStyle:              z.enum(["metrics-heavy","responsibility-focused"]).optional(),
+  atsLevel:                 z.enum(["basic","balanced","aggressive"]).optional(),
+  coverLetterTone:          z.enum(["formal","friendly","confident"]).optional(),
+  coverLetterLength:        z.enum(["short","medium","detailed"]).optional(),
+  coverLetterPersonalization: z.enum(["low","medium","high"]).optional(),
+  noFakeExperience:         z.boolean().optional(),
+  noChangeTitles:           z.boolean().optional(),
+  noExaggerateMetrics:      z.boolean().optional(),
+  onlyRephrase:             z.boolean().optional(),
+  aiCustomRoles:            z.array(z.string().max(100)).max(20).optional(),
+  aiDefaultInstructions:    z.string().max(4000).optional().nullable(),
+  resumeTitleFont:          z.enum(["Playfair Display", "Poppins", "Space Grotesk", "Merriweather", "Libre Baskerville"]).optional(),
+  resumeBodyFont:           z.enum(["Source Sans 3", "Inter", "Lora", "IBM Plex Sans", "Work Sans"]).optional(),
+  resumeAccentColor:        z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  resumeTemplate:           z.enum(["modern", "classic", "compact"]).optional(),
+  resumeDensity:            z.enum(["comfortable", "balanced", "compact"]).optional(),
 });
 
 router.put("/preferences", validate(prefsSchema), async (req: Request, res: Response): Promise<void> => {
   const d = req.body as z.infer<typeof prefsSchema>;
   try {
     await query(
-      `INSERT INTO user_preferences (user_id)
-       VALUES ($1)
+      `INSERT INTO user_preferences (
+         user_id,
+         auto_optimize_ats,
+         include_cover_letters,
+         notify_new_matches,
+         notify_application_updates,
+         notify_weekly_summary,
+         notify_ai_insights,
+         default_ai_provider,
+         ai_tone,
+         resume_style,
+         bullet_style,
+         ats_level,
+         cover_letter_tone,
+         cover_letter_length,
+         cover_letter_personalization,
+         no_fake_experience,
+         no_change_titles,
+         no_exaggerate_metrics,
+         only_rephrase,
+         ai_custom_roles,
+         ai_default_instructions,
+         resume_title_font,
+         resume_body_font,
+         resume_accent_color,
+         resume_template,
+         resume_density
+       )
+       VALUES (
+         $1,
+         COALESCE($2, true),
+         COALESCE($3, true),
+         COALESCE($4, true),
+         COALESCE($5, true),
+         COALESCE($6, true),
+         COALESCE($7, false),
+         COALESCE($8::ai_provider, 'openai'::ai_provider),
+         COALESCE($9, 'impact-driven'),
+         COALESCE($10, 'balanced'),
+         COALESCE($11, 'metrics-heavy'),
+         COALESCE($12, 'balanced'),
+         COALESCE($13, 'confident'),
+         COALESCE($14, 'medium'),
+         COALESCE($15, 'medium'),
+         COALESCE($16, true),
+         COALESCE($17, true),
+         COALESCE($18, true),
+         COALESCE($19, true),
+         COALESCE($20::text[], '{}'::text[]),
+         $21,
+         COALESCE($22, 'Playfair Display'),
+         COALESCE($23, 'Source Sans 3'),
+         COALESCE($24, '#2563EB'),
+         COALESCE($25, 'modern'),
+         COALESCE($26, 'balanced')
+       )
        ON CONFLICT (user_id) DO UPDATE SET
          auto_optimize_ats          = COALESCE($2, user_preferences.auto_optimize_ats),
          include_cover_letters      = COALESCE($3, user_preferences.include_cover_letters),
@@ -53,6 +157,24 @@ router.put("/preferences", validate(prefsSchema), async (req: Request, res: Resp
          notify_weekly_summary      = COALESCE($6, user_preferences.notify_weekly_summary),
          notify_ai_insights         = COALESCE($7, user_preferences.notify_ai_insights),
          default_ai_provider        = COALESCE($8::ai_provider, user_preferences.default_ai_provider),
+         ai_tone                    = COALESCE($9, user_preferences.ai_tone),
+         resume_style               = COALESCE($10, user_preferences.resume_style),
+         bullet_style               = COALESCE($11, user_preferences.bullet_style),
+         ats_level                  = COALESCE($12, user_preferences.ats_level),
+         cover_letter_tone          = COALESCE($13, user_preferences.cover_letter_tone),
+         cover_letter_length        = COALESCE($14, user_preferences.cover_letter_length),
+         cover_letter_personalization = COALESCE($15, user_preferences.cover_letter_personalization),
+         no_fake_experience         = COALESCE($16, user_preferences.no_fake_experience),
+         no_change_titles           = COALESCE($17, user_preferences.no_change_titles),
+         no_exaggerate_metrics      = COALESCE($18, user_preferences.no_exaggerate_metrics),
+         only_rephrase              = COALESCE($19, user_preferences.only_rephrase),
+         ai_custom_roles            = COALESCE($20::text[], user_preferences.ai_custom_roles),
+         ai_default_instructions    = COALESCE($21, user_preferences.ai_default_instructions),
+         resume_title_font          = COALESCE($22, user_preferences.resume_title_font),
+         resume_body_font           = COALESCE($23, user_preferences.resume_body_font),
+         resume_accent_color        = COALESCE($24, user_preferences.resume_accent_color),
+         resume_template            = COALESCE($25, user_preferences.resume_template),
+         resume_density             = COALESCE($26, user_preferences.resume_density),
          updated_at                 = NOW()`,
       [
         req.userId,
@@ -63,6 +185,24 @@ router.put("/preferences", validate(prefsSchema), async (req: Request, res: Resp
         d.notifyWeeklySummary ?? null,
         d.notifyAiInsights ?? null,
         d.defaultAiProvider ?? null,
+        d.aiTone ?? null,
+        d.resumeStyle ?? null,
+        d.bulletStyle ?? null,
+        d.atsLevel ?? null,
+        d.coverLetterTone ?? null,
+        d.coverLetterLength ?? null,
+        d.coverLetterPersonalization ?? null,
+        d.noFakeExperience ?? null,
+        d.noChangeTitles ?? null,
+        d.noExaggerateMetrics ?? null,
+        d.onlyRephrase ?? null,
+        d.aiCustomRoles ?? null,
+        d.aiDefaultInstructions ?? null,
+        d.resumeTitleFont ?? null,
+        d.resumeBodyFont ?? null,
+        d.resumeAccentColor ?? null,
+        d.resumeTemplate ?? null,
+        d.resumeDensity ?? null,
       ]
     );
     res.json({ message: "Preferences updated." });
@@ -483,6 +623,8 @@ router.get("/subscription", async (req: Request, res: Response): Promise<void> =
 
 router.post("/resume/improve", async (req: Request, res: Response): Promise<void> => {
   try {
+    const globalAi = await getGlobalAiSettings(req.userId!);
+
     // Get connected OpenAI key
     const keyRow = await queryOne<{
       encrypted_key: string; encryption_iv: string;
@@ -528,6 +670,7 @@ router.post("/resume/improve", async (req: Request, res: Response): Promise<void
     if (Array.isArray(softSkills) && softSkills.length)
       contextParts.push(`Soft skills: ${(softSkills as string[]).join(", ")}`);
     if (certifications) contextParts.push(`Certifications: ${certifications}`);
+    contextParts.push(...buildAiPreferenceNotes(globalAi));
 
     const prompt = `You are an expert resume writer and career coach. Improve the candidate's resume content based on their profile.
 
@@ -561,7 +704,13 @@ Respond ONLY with valid JSON:
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: "You are a professional resume writer. Always respond with valid JSON only." },
+          {
+            role: "system",
+            content: buildAiSystemPrompt(
+              "You are a professional resume writer and career coach. Always respond with valid JSON only.",
+              globalAi
+            ),
+          },
           { role: "user", content: prompt },
         ],
         response_format: { type: "json_object" },

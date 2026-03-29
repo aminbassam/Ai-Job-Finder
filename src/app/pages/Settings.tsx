@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { User, Sparkles, Bell, CreditCard } from "lucide-react";
 import { AiProvidersTab } from "./settings/AiProvidersTab";
+import { GlobalAiSettingsTab } from "./settings/GlobalAiSettingsTab";
 import { Card } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Input } from "../components/ui/input";
@@ -109,7 +110,7 @@ export function Settings() {
           </TabsTrigger>
           <TabsTrigger value="ai" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
             <Sparkles className="h-4 w-4 mr-2" />
-            AI Providers
+            AI Settings
           </TabsTrigger>
           <TabsTrigger value="notifications" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
             <Bell className="h-4 w-4 mr-2" />
@@ -256,10 +257,20 @@ export function Settings() {
 
         {/* AI Providers Tab */}
         <TabsContent value="ai">
-          <Card className="bg-[#111827] border-[#1F2937] p-6">
-            <h2 className="text-[20px] font-semibold text-white mb-6">AI Provider Settings</h2>
-            <AiProvidersTab />
-          </Card>
+          <div className="space-y-4">
+            <Card className="bg-[#111827] border-[#1F2937] p-6">
+              <h2 className="text-[20px] font-semibold text-white mb-6">AI Provider Settings</h2>
+              <AiProvidersTab />
+            </Card>
+
+            <Card className="bg-[#111827] border-[#1F2937] p-6">
+              <h2 className="text-[20px] font-semibold text-white mb-2">Global AI Behaviour</h2>
+              <p className="text-[13px] text-[#9CA3AF] mb-6">
+                These rules apply across AI-generated resumes, AI resume improvement, and other shared AI writing flows.
+              </p>
+              <GlobalAiSettingsTab />
+            </Card>
+          </div>
         </TabsContent>
 
         {/* Notifications Tab */}

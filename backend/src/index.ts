@@ -19,6 +19,8 @@ import settingsRouter    from "./routes/settings";
 import documentsRouter   from "./routes/documents";
 import adminRouter       from "./routes/admin";
 import agentRouter       from "./routes/agent";
+import aiRouter          from "./routes/ai";
+import masterResumeRouter from "./routes/master-resume";
 import { startScheduler } from "./services/scheduler";
 
 const app = express();
@@ -38,7 +40,7 @@ app.use(
 );
 
 // ── Body parsing ─────────────────────────────────────────────────────────────
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "12mb" }));
 
 // ── Rate limiting on auth routes ─────────────────────────────────────────────
 const authLimiter = rateLimit({
@@ -60,6 +62,8 @@ app.use("/api/settings",     settingsRouter);
 app.use("/api/documents",    documentsRouter);
 app.use("/api/admin",        adminRouter);
 app.use("/api/agent",        agentRouter);
+app.use("/api/ai",           aiRouter);
+app.use("/api/master-resume", masterResumeRouter);
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
@@ -141,6 +145,9 @@ async function applyMigrations() {
     { name: "006_agent_profile_filters",  file: join(ROOT, "db/migrations/006_agent_profile_filters.sql") },
     { name: "007_fix_ai_provider_columns", file: join(ROOT, "db/migrations/007_fix_ai_provider_columns.sql") },
     { name: "008_job_match_ai_summary",    file: join(ROOT, "db/migrations/008_job_match_ai_summary.sql") },
+    { name: "009_global_ai_settings",      file: join(ROOT, "db/migrations/009_global_ai_settings.sql") },
+    { name: "010_resume_rich_formatting",  file: join(ROOT, "db/migrations/010_resume_rich_formatting.sql") },
+    { name: "011_multi_profile_master_resume", file: join(ROOT, "db/migrations/011_multi_profile_master_resume.sql") },
   ];
   const client = await pool.connect();
   try {
@@ -200,6 +207,26 @@ async function ensureCriticalColumns() {
     `ALTER TABLE search_profiles ADD COLUMN IF NOT EXISTS job_types                text[]  NOT NULL DEFAULT '{}'`,
     `ALTER TABLE search_profiles ADD COLUMN IF NOT EXISTS posted_within_days       integer`,
     `ALTER TABLE search_profiles ADD COLUMN IF NOT EXISTS schedule_interval_minutes integer`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS ai_tone text NOT NULL DEFAULT 'impact-driven'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_style text NOT NULL DEFAULT 'balanced'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS bullet_style text NOT NULL DEFAULT 'metrics-heavy'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS ats_level text NOT NULL DEFAULT 'balanced'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS cover_letter_tone text NOT NULL DEFAULT 'confident'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS cover_letter_length text NOT NULL DEFAULT 'medium'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS cover_letter_personalization text NOT NULL DEFAULT 'medium'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS no_fake_experience boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS no_change_titles boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS no_exaggerate_metrics boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS only_rephrase boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS ai_custom_roles text[] NOT NULL DEFAULT '{}'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS ai_default_instructions text`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_title_font text NOT NULL DEFAULT 'Playfair Display'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_body_font text NOT NULL DEFAULT 'Source Sans 3'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_accent_color text NOT NULL DEFAULT '#2563EB'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_template text NOT NULL DEFAULT 'modern'`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_density text NOT NULL DEFAULT 'balanced'`,
+    `ALTER TABLE documents ADD COLUMN IF NOT EXISTS content_html text`,
+    `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS content_html text`,
   ];
   const client = await pool.connect();
   try {

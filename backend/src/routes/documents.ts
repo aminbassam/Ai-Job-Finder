@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { query, queryOne } from "../db/pool";
 import { requireAuth } from "../middleware/auth";
+import { generateSimplePdf } from "../services/pdf";
 
 const router = Router();
 router.use(requireAuth);
@@ -80,8 +81,8 @@ router.get("/:id", async (req: Request, res: Response): Promise<void> => {
 
 router.get("/:id/download", async (req: Request, res: Response): Promise<void> => {
   try {
-    const doc = await queryOne<{ content_text: string | null; title: string }>(
-      `SELECT content_text, title FROM documents WHERE id = $1 AND user_id = $2`,
+    const doc = await queryOne<{ content_text: string | null; content_html: string | null; title: string }>(
+      `SELECT content_text, content_html, title FROM documents WHERE id = $1 AND user_id = $2`,
       [req.params.id, req.userId]
     );
 
@@ -90,14 +91,21 @@ router.get("/:id/download", async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // In production: serve the actual file from S3/object storage.
-    // For now: return content as plain text.
-    res.setHeader("Content-Type", "text/plain");
+    const filename = `${doc.title.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "") || "resume"}.pdf`;
+    const fallbackText = doc.content_text
+      ?? doc.content_html?.replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+      ?? "Document content not available.";
+    const pdf = generateSimplePdf(doc.title, fallbackText);
+
+    res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${doc.title.replace(/[^a-z0-9]/gi, "_")}.txt"`
+      `attachment; filename="${filename}"`
     );
-    res.send(doc.content_text ?? "Document content not available.");
+    res.send(pdf);
   } catch (err) {
     console.error("[documents/download]", err);
     res.status(500).json({ message: "Failed to download document." });
