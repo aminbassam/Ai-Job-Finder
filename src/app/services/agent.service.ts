@@ -57,6 +57,10 @@ export interface JobMatch {
     roleAlignment: number;
     locationSalaryFit: number;
     reasoning?: string;
+    strengths?: string[];
+    weaknesses?: string[];
+    areasToAddress?: string[];
+    error?: string;
   };
   matchTier?: "strong" | "maybe" | "weak" | "reject" | "new";
   scoredAt?: string;
@@ -164,3 +168,11 @@ export const importJob = (data: ImportPayload) =>
 
 export const getRuns = () =>
   api.get<AgentRun[]>("/agent/runs");
+
+/* ──────────────────── Resume generation ─────────────────────────────── */
+
+export const generateResume = (matchId: string) =>
+  api.post<{ documentId: string; title: string; message: string }>(
+    `/agent/results/${matchId}/generate-resume`,
+    {}
+  );

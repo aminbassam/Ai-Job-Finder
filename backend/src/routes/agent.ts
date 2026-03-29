@@ -13,6 +13,7 @@ import { pool } from "../db/pool";
 import { runPipeline, PipelineProfile } from "../services/pipeline";
 import { fetchImportedJobDetails } from "../services/import-metadata";
 import { scoreJobWithAi } from "../services/ai-scorer";
+import { decrypt } from "../utils/encryption";
 
 const router = Router();
 router.use(requireAuth);
@@ -621,6 +622,196 @@ router.post("/import", async (req, res) => {
     const msg = (err as Error).message;
     console.error("[import]", msg);
     res.status(500).json({ message: `Import failed: ${msg}` });
+  }
+});
+
+/* ══════════════════════ Generate Resume ════════════════════════════════ */
+
+// POST /api/agent/results/:id/generate-resume
+router.post("/results/:id/generate-resume", async (req, res) => {
+  const matchId = req.params.id;
+
+  try {
+    // 1. Fetch job_matches row
+    const { rows: matchRows } = await pool.query(
+      `SELECT * FROM job_matches WHERE id = $1 AND user_id = $2`,
+      [matchId, req.userId]
+    );
+    if (!matchRows[0]) {
+      return res.status(404).json({ message: "Job match not found." });
+    }
+    const job = matchRows[0] as Record<string, unknown>;
+
+    // 2. Get user's connected OpenAI key
+    const { rows: keyRows } = await pool.query<{
+      encrypted_key: string;
+      encryption_iv: string;
+      encryption_tag: string;
+      selected_model: string;
+    }>(
+      `SELECT encrypted_key, encryption_iv, encryption_tag, selected_model
+       FROM ai_provider_connections
+       WHERE user_id = $1 AND provider = 'openai' AND is_connected = true
+       LIMIT 1`,
+      [req.userId]
+    );
+
+    if (!keyRows[0]?.encrypted_key) {
+      return res.status(400).json({ message: "No OpenAI API key connected." });
+    }
+
+    const apiKey = decrypt({
+      encrypted: keyRows[0].encrypted_key,
+      iv: keyRows[0].encryption_iv,
+      tag: keyRows[0].encryption_tag,
+    });
+    const model = keyRows[0].selected_model ?? "gpt-4o-mini";
+
+    // 3. Load resume_preferences + user_profiles + user_skills
+    const { rows: prefRows } = await pool.query<Record<string, unknown>>(
+      `SELECT target_roles, seniority_level, must_have_keywords, tools_technologies,
+              soft_skills, industry_focus, key_achievements, certifications, executive_skills
+       FROM resume_preferences WHERE user_id = $1`,
+      [req.userId]
+    );
+    const prefs = prefRows[0] ?? {};
+
+    const { rows: profileRows } = await pool.query<Record<string, unknown>>(
+      `SELECT up.professional_summary, up.years_experience,
+              COALESCE(
+                json_agg(us.skill_name ORDER BY us.years_experience DESC NULLS LAST)
+                  FILTER (WHERE us.skill_name IS NOT NULL),
+                '[]'
+              ) AS skills
+       FROM user_profiles up
+       LEFT JOIN user_skills us ON us.user_id = up.user_id
+       WHERE up.user_id = $1
+       GROUP BY up.user_id, up.professional_summary, up.years_experience`,
+      [req.userId]
+    );
+    const profile = profileRows[0] ?? {};
+
+    // 4. Build resume generation prompt
+    const candidateLines: string[] = [];
+    if (profile.professional_summary) candidateLines.push(`Summary: ${profile.professional_summary}`);
+    if (profile.years_experience) candidateLines.push(`Years of experience: ${profile.years_experience}`);
+    if (prefs.seniority_level) candidateLines.push(`Seniority level: ${prefs.seniority_level}`);
+    if (Array.isArray(prefs.target_roles) && (prefs.target_roles as string[]).length > 0) {
+      candidateLines.push(`Target roles: ${(prefs.target_roles as string[]).join(", ")}`);
+    }
+    if (Array.isArray(profile.skills) && (profile.skills as string[]).length > 0) {
+      candidateLines.push(`Skills: ${(profile.skills as string[]).slice(0, 25).join(", ")}`);
+    }
+    if (Array.isArray(prefs.tools_technologies) && (prefs.tools_technologies as string[]).length > 0) {
+      candidateLines.push(`Tools & technologies: ${(prefs.tools_technologies as string[]).join(", ")}`);
+    }
+    if (prefs.executive_skills) {
+      candidateLines.push(`Executive skills: ${String(prefs.executive_skills).slice(0, 300)}`);
+    }
+    if (prefs.key_achievements) {
+      candidateLines.push(`Key achievements: ${String(prefs.key_achievements).slice(0, 400)}`);
+    }
+    if (prefs.certifications) {
+      candidateLines.push(`Certifications: ${String(prefs.certifications).slice(0, 200)}`);
+    }
+    if (Array.isArray(prefs.soft_skills) && (prefs.soft_skills as string[]).length > 0) {
+      candidateLines.push(`Soft skills: ${(prefs.soft_skills as string[]).join(", ")}`);
+    }
+
+    const reqList = Array.isArray(job.requirements)
+      ? (job.requirements as string[]).slice(0, 12).map((r: string) => `- ${r}`).join("\n")
+      : "";
+    const desc = typeof job.description === "string"
+      ? job.description.replace(/<[^>]+>/g, " ").slice(0, 1500)
+      : "";
+
+    const resumePrompt = `You are an expert resume writer. Generate a complete, ATS-optimized tailored resume in markdown format.
+
+CANDIDATE PROFILE:
+${candidateLines.join("\n")}
+
+TARGET JOB:
+Title: ${job.title}
+Company: ${job.company ?? ""}
+Location: ${job.location ?? ""}
+Description: ${desc}
+Requirements:
+${reqList}
+
+Instructions:
+- Write a tailored professional summary (3-4 sentences) for THIS specific role
+- List the most relevant skills prominently
+- Use keywords directly from the job description
+- Format experience bullets with impact/metrics
+- Make every section directly relevant to the job
+- Output clean markdown with sections: Professional Summary, Core Skills, Professional Experience (use candidate's actual experience from profile), Education (placeholder if not provided), Certifications
+
+Return ONLY the markdown resume, no explanation.`;
+
+    // 5. Call OpenAI
+    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: "You are an expert resume writer. Return only clean markdown." },
+          { role: "user", content: resumePrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 2000,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => "");
+      console.error("[generate-resume] OpenAI error:", aiRes.status, errBody);
+      return res.status(502).json({ message: `OpenAI returned ${aiRes.status}.` });
+    }
+
+    const aiData = await aiRes.json() as { choices?: { message?: { content?: string } }[] };
+    const contentText = aiData.choices?.[0]?.message?.content?.trim() ?? "";
+
+    if (!contentText) {
+      return res.status(502).json({ message: "AI returned an empty resume. Please try again." });
+    }
+
+    // 6. Save to documents table
+    const docTitle = `Tailored Resume — ${job.title} at ${job.company ?? "Unknown"}`;
+    const metadata = JSON.stringify({
+      jobMatchId: matchId,
+      jobTitle: job.title,
+      company: job.company,
+      aiScore: job.ai_score,
+      tier: job.match_tier,
+    });
+
+    const { rows: docRows } = await pool.query(
+      `INSERT INTO documents (user_id, kind, resume_type, origin, title, content_text, metadata)
+       VALUES ($1, 'resume', 'tailored', 'ai_generated', $2, $3, $4::jsonb)
+       RETURNING id`,
+      [req.userId, docTitle, contentText, metadata]
+    );
+    const documentId = docRows[0].id as string;
+
+    // 7. Mark resume_generated on the job match
+    await pool.query(
+      `UPDATE job_matches SET resume_generated = true, updated_at = now() WHERE id = $1`,
+      [matchId]
+    );
+
+    res.json({
+      documentId,
+      title: docTitle,
+      message: "Resume generated and saved to Resume Vault.",
+    });
+  } catch (err) {
+    console.error("[generate-resume]", (err as Error).message);
+    res.status(500).json({ message: `Failed to generate resume: ${(err as Error).message}` });
   }
 });
 

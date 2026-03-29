@@ -1,18 +1,14 @@
-import { useState, useEffect } from "react";
-import { Zap, Target, Plug, Inbox, Download, History, Play } from "lucide-react";
-import { Badge } from "../components/ui/badge";
+import { useState } from "react";
+import { Zap, Target, Plug, Download, History, Play } from "lucide-react";
 import { ProfilesTab } from "./agent/ProfilesTab";
 import { SourcesTab } from "./agent/SourcesTab";
-import { ResultsTab } from "./agent/ResultsTab";
 import { ImportTab } from "./agent/ImportTab";
 import { RunsTab } from "./agent/RunsTab";
-import { getResults } from "../services/agent.service";
 
 /* ─── Tab definition ──────────────────────────────────────────────────── */
 const TABS = [
   { id: "profiles", label: "Search Profiles", icon: Target },
   { id: "sources",  label: "Sources",         icon: Plug   },
-  { id: "results",  label: "Results",          icon: Inbox  },
   { id: "import",   label: "Manual Import",    icon: Download },
   { id: "runs",     label: "Run History",      icon: History },
 ] as const;
@@ -22,14 +18,6 @@ type TabId = (typeof TABS)[number]["id"];
 /* ─── Main page ───────────────────────────────────────────────────────── */
 export function JobAgent() {
   const [tab, setTab] = useState<TabId>("profiles");
-  const [newCount, setNewCount] = useState(0);
-
-  // Fetch count of new strong+maybe matches for the Results badge
-  useEffect(() => {
-    getResults({ tier: "strong", status: "new", limit: 1 })
-      .then((r) => setNewCount(r.total))
-      .catch(() => {});
-  }, [tab]);
 
   return (
     <div className="p-8">
@@ -55,7 +43,7 @@ export function JobAgent() {
           { n: 2, icon: Plug, label: "Connect sources", sub: "Greenhouse, Lever, Upwork" },
           { n: 3, icon: Play, label: "Auto-runs on schedule", sub: "Every 6h / daily" },
           { n: 4, icon: Zap, label: "AI scores every job", sub: "Strong / Maybe / Weak" },
-          { n: 5, icon: Inbox, label: "Review top matches", sub: "Tailored resume in 1 click" },
+          { n: 5, icon: Zap, label: "View in Job Board", sub: "All matches → /jobs" },
         ].map((step, i, arr) => (
           <div key={step.n} className="flex items-center gap-4 shrink-0">
             <div className="text-center">
@@ -88,11 +76,6 @@ export function JobAgent() {
             >
               <Icon className="h-4 w-4" />
               {label}
-              {id === "results" && newCount > 0 && (
-                <Badge className="bg-[#4F8CFF] text-white text-[10px] px-1.5 py-0 min-w-[18px] h-[18px] flex items-center justify-center ml-0.5">
-                  {newCount > 99 ? "99+" : newCount}
-                </Badge>
-              )}
             </button>
           ))}
         </div>
@@ -101,7 +84,6 @@ export function JobAgent() {
       {/* Tab content */}
       {tab === "profiles" && <ProfilesTab />}
       {tab === "sources"  && <SourcesTab />}
-      {tab === "results"  && <ResultsTab />}
       {tab === "import"   && <ImportTab />}
       {tab === "runs"     && <RunsTab />}
     </div>

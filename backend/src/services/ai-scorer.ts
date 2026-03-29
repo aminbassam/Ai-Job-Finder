@@ -18,6 +18,9 @@ export interface AiScoreResult {
     roleAlignment: number;
     locationSalaryFit: number;
     reasoning: string;
+    strengths: string[];
+    weaknesses: string[];
+    areasToAddress: string[];
     error?: string;
   };
 }
@@ -205,12 +208,15 @@ Scoring rubric:
 Respond ONLY with this JSON:
 {
   "score": <sum of the four sub-scores>,
-  "summary": "<2-3 sentences summarising this specific job — what the role does, key requirements, and what makes it notable>",
+  "summary": "<2-3 sentence job summary>",
   "skillsMatch": <0-25>,
   "experienceMatch": <0-25>,
   "roleAlignment": <0-25>,
   "locationSalaryFit": <0-25>,
-  "reasoning": "<1-2 sentences on the strongest matches and biggest gaps between this job and the candidate>"
+  "reasoning": "<strengths and gaps>",
+  "strengths": ["<why you should apply - 2-3 items>"],
+  "weaknesses": ["<why you might not apply - 1-2 items>"],
+  "areasToAddress": ["<resume/skill gaps to fix - 1-2 items>"]
 }`;
 
   // ── 5. Call OpenAI ─────────────────────────────────────────────────────────
@@ -230,7 +236,7 @@ Respond ONLY with this JSON:
         ],
         response_format: { type: "json_object" },
         temperature: 0.2,
-        max_tokens: 400,
+        max_tokens: 600,
       }),
       signal: AbortSignal.timeout(30_000),
     });
@@ -275,6 +281,16 @@ Respond ONLY with this JSON:
 
     const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
 
+    const strengths = Array.isArray(parsed.strengths)
+      ? (parsed.strengths as unknown[]).filter((s): s is string => typeof s === "string")
+      : [];
+    const weaknesses = Array.isArray(parsed.weaknesses)
+      ? (parsed.weaknesses as unknown[]).filter((s): s is string => typeof s === "string")
+      : [];
+    const areasToAddress = Array.isArray(parsed.areasToAddress)
+      ? (parsed.areasToAddress as unknown[]).filter((s): s is string => typeof s === "string")
+      : [];
+
     return {
       ok: true,
       result: {
@@ -287,6 +303,9 @@ Respond ONLY with this JSON:
           roleAlignment,
           locationSalaryFit,
           reasoning,
+          strengths,
+          weaknesses,
+          areasToAddress,
         },
       },
     };
