@@ -451,4 +451,128 @@ router.get("/subscription", async (req: Request, res: Response): Promise<void> =
   }
 });
 
+// ── POST /api/settings/resume/improve ────────────────────────────────────────
+// Uses the user's connected OpenAI key to rewrite their summary, achievements,
+// and suggest additional ATS keywords based on their current resume data.
+
+router.post("/resume/improve", async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Get connected OpenAI key
+    const keyRow = await queryOne<{
+      encrypted_key: string; encryption_iv: string;
+      encryption_tag: string; selected_model: string;
+    }>(
+      `SELECT encrypted_key, encryption_iv, encryption_tag, selected_model
+       FROM ai_provider_connections
+       WHERE user_id = $1 AND provider = 'openai' AND is_connected = true
+       LIMIT 1`,
+      [req.userId]
+    );
+    if (!keyRow?.encrypted_key) {
+      res.status(422).json({ message: "No OpenAI key connected. Go to Settings → AI Providers to connect one." });
+      return;
+    }
+    const apiKey = decrypt({
+      encrypted: keyRow.encrypted_key,
+      iv: keyRow.encryption_iv,
+      tag: keyRow.encryption_tag,
+    });
+    const model = keyRow.selected_model ?? "gpt-4o-mini";
+
+    // Gather resume context from request body (current form values)
+    const {
+      summary = "", keyAchievements = "", certifications = "",
+      coreSkills = [], toolsTech = [], softSkills = [],
+      targetRoles = [], seniorityLevel = "mid",
+      industryFocus = [], mustHaveKeywords = [],
+      yearsExperience = 0,
+    } = req.body as Record<string, unknown>;
+
+    const contextParts: string[] = [];
+    if (yearsExperience) contextParts.push(`Years of experience: ${yearsExperience}`);
+    if (seniorityLevel)  contextParts.push(`Seniority: ${seniorityLevel}`);
+    if (Array.isArray(targetRoles) && targetRoles.length)
+      contextParts.push(`Target roles: ${(targetRoles as string[]).join(", ")}`);
+    if (Array.isArray(industryFocus) && industryFocus.length)
+      contextParts.push(`Industries: ${(industryFocus as string[]).join(", ")}`);
+    if (Array.isArray(coreSkills) && coreSkills.length)
+      contextParts.push(`Core skills: ${(coreSkills as string[]).join(", ")}`);
+    if (Array.isArray(toolsTech) && toolsTech.length)
+      contextParts.push(`Tools & tech: ${(toolsTech as string[]).join(", ")}`);
+    if (Array.isArray(softSkills) && softSkills.length)
+      contextParts.push(`Soft skills: ${(softSkills as string[]).join(", ")}`);
+    if (certifications) contextParts.push(`Certifications: ${certifications}`);
+
+    const prompt = `You are an expert resume writer and career coach. Improve the candidate's resume content based on their profile.
+
+CANDIDATE PROFILE:
+${contextParts.join("\n") || "(not yet filled in)"}
+
+CURRENT PROFESSIONAL SUMMARY:
+${String(summary).trim() || "(empty)"}
+
+CURRENT KEY ACHIEVEMENTS:
+${String(keyAchievements).trim() || "(empty)"}
+
+CURRENT ATS KEYWORDS:
+${Array.isArray(mustHaveKeywords) ? (mustHaveKeywords as string[]).join(", ") : ""}
+
+INSTRUCTIONS:
+1. Rewrite the professional summary: 2-3 sentences, strong opening, mentions seniority + industry + value delivered. Max 60 words.
+2. Rewrite key achievements: 3-5 bullet points starting with strong action verbs and metrics where possible. Use the existing content as a base — do not invent facts.
+3. Suggest 6-8 high-value ATS keywords not already in the list that match the target roles and industry.
+
+Respond ONLY with valid JSON:
+{
+  "summary": "<improved summary>",
+  "keyAchievements": "<improved achievements with bullet points using • character>",
+  "suggestedKeywords": ["keyword1", "keyword2", ...]
+}`;
+
+    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: "You are a professional resume writer. Always respond with valid JSON only." },
+          { role: "user", content: prompt },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.4,
+        max_tokens: 700,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!aiRes.ok) {
+      const errText = await aiRes.text().catch(() => "");
+      console.error("[resume/improve] OpenAI error:", aiRes.status, errText);
+      res.status(502).json({ message: `OpenAI returned an error: ${aiRes.status}. ${errText.slice(0, 120)}` });
+      return;
+    }
+
+    const aiData = await aiRes.json() as { choices?: { message?: { content?: string } }[] };
+    const content = aiData.choices?.[0]?.message?.content ?? "";
+
+    let parsed: { summary?: string; keyAchievements?: string; suggestedKeywords?: string[] };
+    try {
+      parsed = JSON.parse(content) as typeof parsed;
+    } catch {
+      res.status(502).json({ message: "AI returned an unexpected response. Please try again." });
+      return;
+    }
+
+    res.json({
+      summary:           typeof parsed.summary === "string"          ? parsed.summary.trim()           : null,
+      keyAchievements:   typeof parsed.keyAchievements === "string"   ? parsed.keyAchievements.trim()   : null,
+      suggestedKeywords: Array.isArray(parsed.suggestedKeywords)      ? parsed.suggestedKeywords        : [],
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error("[resume/improve]", msg);
+    res.status(500).json({ message: `Failed to improve resume: ${msg}` });
+  }
+});
+
 export default router;

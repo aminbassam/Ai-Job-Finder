@@ -29,4 +29,15 @@ export const settingsService = {
 
   setProviderModel: (provider: string, model: string): Promise<{ message: string; model: string }> =>
     api.put(`/settings/ai-providers/${provider}/model`, { model }),
+
+  improveResume: (data: {
+    summary: string; keyAchievements: string; certifications: string;
+    coreSkills: string[]; toolsTech: string[]; softSkills: string[];
+    targetRoles: string[]; seniorityLevel: string; industryFocus: string[];
+    mustHaveKeywords: string[]; yearsExperience: number;
+  }): Promise<{
+    summary: string | null;
+    keyAchievements: string | null;
+    suggestedKeywords: string[];
+  }> => api.post("/settings/resume/improve", data),
 };

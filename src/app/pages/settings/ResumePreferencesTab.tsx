@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Target, Brain, Zap, Shield, BarChart2, Sparkles,
-  CheckCircle2, AlertCircle, ChevronRight, FileText, Info,
+  CheckCircle2, AlertCircle, ChevronRight, FileText,
+  Loader2, X, ArrowRight, Plus,
 } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
@@ -11,6 +12,7 @@ import { Switch } from "../../components/ui/switch";
 import { Slider } from "../../components/ui/slider";
 import { TagInput } from "../../components/ui/tag-input";
 import { profileService } from "../../services/profile.service";
+import { settingsService } from "../../services/settings.service";
 
 // ── Inline helpers ────────────────────────────────────────────────────────────
 
@@ -156,8 +158,6 @@ const KEYWORD_SUGGESTIONS = [
   "distributed systems", "real-time", "high availability",
 ];
 
-// ── Default state ─────────────────────────────────────────────────────────────
-
 const DEFAULT_STATE: FormState = {
   summary: "",
   yearsExperience: 0,
@@ -184,20 +184,160 @@ const DEFAULT_STATE: FormState = {
   onlyRephrase: true,
 };
 
+// ── AI Improve panel ──────────────────────────────────────────────────────────
+
+interface AiSuggestions {
+  summary: string | null;
+  keyAchievements: string | null;
+  suggestedKeywords: string[];
+}
+
+function AiImprovePanel({
+  suggestions,
+  onApplySummary,
+  onApplyAchievements,
+  onAddKeywords,
+  onClose,
+}: {
+  suggestions: AiSuggestions;
+  onApplySummary: (v: string) => void;
+  onApplyAchievements: (v: string) => void;
+  onAddKeywords: (kws: string[]) => void;
+  onClose: () => void;
+}) {
+  const [appliedSummary, setAppliedSummary]   = useState(false);
+  const [appliedAch,     setAppliedAch]       = useState(false);
+  const [addedKws,       setAddedKws]         = useState(false);
+
+  return (
+    <Card className="bg-[#0D1117] border-[#4F8CFF]/30 p-5 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="h-7 w-7 rounded-lg bg-[#4F8CFF]/15 flex items-center justify-center">
+            <Sparkles className="h-3.5 w-3.5 text-[#4F8CFF]" />
+          </div>
+          <div>
+            <p className="text-[14px] font-semibold text-white">AI Suggestions</p>
+            <p className="text-[11px] text-[#6B7280]">Review and apply improvements section by section</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-[#6B7280] hover:text-white transition-colors p-1"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Improved summary */}
+      {suggestions.summary && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wide">
+            Improved Professional Summary
+          </p>
+          <div className="p-3.5 rounded-lg bg-[#111827] border border-[#1F2937] text-[13px] text-[#D1D5DB] leading-relaxed">
+            {suggestions.summary}
+          </div>
+          <Button
+            size="sm"
+            onClick={() => { onApplySummary(suggestions.summary!); setAppliedSummary(true); }}
+            disabled={appliedSummary}
+            className={`text-[12px] h-8 gap-1.5 ${
+              appliedSummary
+                ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30 hover:bg-[#10B981]/15"
+                : "bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white"
+            }`}
+          >
+            {appliedSummary
+              ? <><CheckCircle2 className="h-3.5 w-3.5" /> Applied</>
+              : <><ArrowRight className="h-3.5 w-3.5" /> Apply to summary</>
+            }
+          </Button>
+        </div>
+      )}
+
+      {/* Improved achievements */}
+      {suggestions.keyAchievements && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wide">
+            Improved Key Achievements
+          </p>
+          <div className="p-3.5 rounded-lg bg-[#111827] border border-[#1F2937] text-[13px] text-[#D1D5DB] leading-relaxed whitespace-pre-line">
+            {suggestions.keyAchievements}
+          </div>
+          <Button
+            size="sm"
+            onClick={() => { onApplyAchievements(suggestions.keyAchievements!); setAppliedAch(true); }}
+            disabled={appliedAch}
+            className={`text-[12px] h-8 gap-1.5 ${
+              appliedAch
+                ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30 hover:bg-[#10B981]/15"
+                : "bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white"
+            }`}
+          >
+            {appliedAch
+              ? <><CheckCircle2 className="h-3.5 w-3.5" /> Applied</>
+              : <><ArrowRight className="h-3.5 w-3.5" /> Apply to achievements</>
+            }
+          </Button>
+        </div>
+      )}
+
+      {/* Suggested keywords */}
+      {suggestions.suggestedKeywords.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold text-[#9CA3AF] uppercase tracking-wide">
+            Suggested ATS Keywords
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.suggestedKeywords.map((kw) => (
+              <span
+                key={kw}
+                className="px-2.5 py-1 rounded-full bg-[#4F8CFF]/10 text-[#4F8CFF] border border-[#4F8CFF]/25 text-[12px]"
+              >
+                {kw}
+              </span>
+            ))}
+          </div>
+          <Button
+            size="sm"
+            onClick={() => { onAddKeywords(suggestions.suggestedKeywords); setAddedKws(true); }}
+            disabled={addedKws}
+            className={`text-[12px] h-8 gap-1.5 ${
+              addedKws
+                ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30 hover:bg-[#10B981]/15"
+                : "bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white"
+            }`}
+          >
+            {addedKws
+              ? <><CheckCircle2 className="h-3.5 w-3.5" /> Added to keywords</>
+              : <><Plus className="h-3.5 w-3.5" /> Add all to ATS keywords</>
+            }
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ResumePreferencesTab() {
-  const [form, setForm] = useState<FormState>(DEFAULT_STATE);
+  const [form, setForm]       = useState<FormState>(DEFAULT_STATE);
   const [loading, setLoading] = useState(true);
   const [isDirty, setIsDirty] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const secondsTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [secAgo, setSecAgo] = useState(0);
+  const [saving,  setSaving]  = useState(false);
+  const [saved,   setSaved]   = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Load both profile and resume-prefs on mount
+  // AI improve state
+  const [improving,    setImproving]    = useState(false);
+  const [improveError, setImproveError] = useState<string | null>(null);
+  const [suggestions,  setSuggestions]  = useState<AiSuggestions | null>(null);
+
+  // Load profile + resume prefs on mount
   useEffect(() => {
     Promise.all([
       profileService.getProfile().catch(() => null),
@@ -228,75 +368,85 @@ export function ResumePreferencesTab() {
         noExaggerateMetrics:   prefs?.noExaggerateMetrics    ?? true,
         onlyRephrase:          prefs?.onlyRephrase           ?? true,
       });
-    }).finally(() => setLoading(false));
-
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      if (secondsTimer.current) clearInterval(secondsTimer.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Track seconds since last save
-  useEffect(() => {
-    if (saveStatus === "saved") {
-      setSecAgo(0);
-      if (secondsTimer.current) clearInterval(secondsTimer.current);
-      secondsTimer.current = setInterval(() => setSecAgo((s) => s + 1), 1000);
-    }
-    return () => { if (secondsTimer.current) clearInterval(secondsTimer.current); };
-  }, [saveStatus]);
-
-  const save = useCallback(async (snapshot: FormState) => {
-    setSaveStatus("saving");
-    setError(null);
-    try {
-      await Promise.all([
-        profileService.updateProfile({
-          summary: snapshot.summary,
-          yearsExperience: snapshot.yearsExperience,
-          skills: snapshot.coreSkills,
-        }),
-        profileService.updateResumePreferences({
-          keyAchievements:            snapshot.keyAchievements,
-          certifications:             snapshot.certifications,
-          toolsTechnologies:          snapshot.toolsTech,
-          softSkills:                 snapshot.softSkills,
-          targetRoles:                snapshot.targetRoles,
-          seniorityLevel:             snapshot.seniorityLevel,
-          industryFocus:              snapshot.industryFocus,
-          mustHaveKeywords:           snapshot.mustHaveKeywords,
-          aiTone:                     snapshot.aiTone,
-          resumeStyle:                snapshot.resumeStyle,
-          bulletStyle:                snapshot.bulletStyle,
-          atsLevel:                   snapshot.atsLevel,
-          includeCoverLetters:        snapshot.includeCoverLetters,
-          coverLetterTone:            snapshot.coverLetterTone,
-          coverLetterLength:          snapshot.coverLetterLength,
-          coverLetterPersonalization: snapshot.coverLetterPersonalization,
-          noFakeExperience:           snapshot.noFakeExperience,
-          noChangeTitles:             snapshot.noChangeTitles,
-          noExaggerateMetrics:        snapshot.noExaggerateMetrics,
-          onlyRephrase:               snapshot.onlyRephrase,
-        }),
-      ]);
-      setLastSaved(new Date());
-      setSaveStatus("saved");
       setIsDirty(false);
-    } catch (err) {
-      setSaveStatus("idle");
-      setError(err instanceof Error ? err.message : "Failed to save.");
-    }
+    }).finally(() => setLoading(false));
   }, []);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => {
-      const next = { ...prev, [key]: value };
-      setIsDirty(true);
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => save(next), 2000);
-      return next;
-    });
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setIsDirty(true);
+    setSaved(false);
+  }
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setSaveError(null);
+    setSaved(false);
+    try {
+      await Promise.all([
+        profileService.updateProfile({
+          summary: form.summary,
+          yearsExperience: form.yearsExperience,
+          skills: form.coreSkills,
+        }),
+        profileService.updateResumePreferences({
+          keyAchievements:            form.keyAchievements,
+          certifications:             form.certifications,
+          toolsTechnologies:          form.toolsTech,
+          softSkills:                 form.softSkills,
+          targetRoles:                form.targetRoles,
+          seniorityLevel:             form.seniorityLevel,
+          industryFocus:              form.industryFocus,
+          mustHaveKeywords:           form.mustHaveKeywords,
+          aiTone:                     form.aiTone,
+          resumeStyle:                form.resumeStyle,
+          bulletStyle:                form.bulletStyle,
+          atsLevel:                   form.atsLevel,
+          includeCoverLetters:        form.includeCoverLetters,
+          coverLetterTone:            form.coverLetterTone,
+          coverLetterLength:          form.coverLetterLength,
+          coverLetterPersonalization: form.coverLetterPersonalization,
+          noFakeExperience:           form.noFakeExperience,
+          noChangeTitles:             form.noChangeTitles,
+          noExaggerateMetrics:        form.noExaggerateMetrics,
+          onlyRephrase:               form.onlyRephrase,
+        }),
+      ]);
+      setIsDirty(false);
+      setSaved(true);
+      // Clear "Saved" indicator after 3 seconds
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }, [form]);
+
+  async function handleImproveWithAi() {
+    setImproving(true);
+    setImproveError(null);
+    setSuggestions(null);
+    try {
+      const result = await settingsService.improveResume({
+        summary:          form.summary,
+        keyAchievements:  form.keyAchievements,
+        certifications:   form.certifications,
+        coreSkills:       form.coreSkills,
+        toolsTech:        form.toolsTech,
+        softSkills:       form.softSkills,
+        targetRoles:      form.targetRoles,
+        seniorityLevel:   form.seniorityLevel,
+        industryFocus:    form.industryFocus,
+        mustHaveKeywords: form.mustHaveKeywords,
+        yearsExperience:  form.yearsExperience,
+      });
+      setSuggestions(result);
+    } catch (err) {
+      setImproveError(err instanceof Error ? err.message : "AI improvement failed.");
+    } finally {
+      setImproving(false);
+    }
   }
 
   const { score, missing } = calcScore(form);
@@ -304,15 +454,6 @@ export function ResumePreferencesTab() {
   const r = 32;
   const circ = 2 * Math.PI * r;
   const dash = circ - (score / 100) * circ;
-
-  const savedLabel =
-    saveStatus === "saving"
-      ? "Saving…"
-      : saveStatus === "saved"
-      ? secAgo < 5
-        ? "Saved just now"
-        : `Saved ${secAgo}s ago`
-      : null;
 
   if (loading) {
     return (
@@ -330,7 +471,7 @@ export function ResumePreferencesTab() {
       <div className="sticky top-0 z-20 -mx-8 px-8 bg-[#0B0F14]/98 backdrop-blur-sm border-b border-[#1F2937] pb-3 pt-1">
         <Card className="bg-gradient-to-r from-[#111827] to-[#0D1117] border-[#1F2937] p-4">
           <div className="flex items-center gap-5">
-            {/* SVG ring */}
+            {/* Score ring */}
             <div className="shrink-0">
               <svg width="76" height="76" viewBox="0 0 84 84">
                 <circle cx="42" cy="42" r={r} fill="none" stroke="#1F2937" strokeWidth="6" />
@@ -346,8 +487,9 @@ export function ResumePreferencesTab() {
                 <text x="42" y="46" textAnchor="middle" fill="white" fontSize="17" fontWeight="700">{score}</text>
               </svg>
             </div>
+
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <h3 className="text-[15px] font-semibold text-white">Resume Readiness Score</h3>
                 <span
                   className="text-[11px] font-medium px-2 py-0.5 rounded-full border"
@@ -355,21 +497,20 @@ export function ResumePreferencesTab() {
                 >
                   {score >= 75 ? "Strong" : score >= 50 ? "Moderate" : "Needs work"}
                 </span>
-                {/* Auto-save status inline */}
-                <span className="ml-auto text-[11px] text-[#6B7280] flex items-center gap-1 shrink-0">
-                  {saveStatus === "saving" && (
-                    <>
-                      <span className="animate-spin inline-block w-3 h-3 border border-[#4F8CFF] border-t-transparent rounded-full" />
-                      Saving…
-                    </>
-                  )}
-                  {saveStatus === "saved" && savedLabel && (
-                    <span className="flex items-center gap-1 text-[#22C55E]">
-                      <CheckCircle2 className="h-3 w-3" />
-                      {savedLabel}
-                    </span>
-                  )}
-                </span>
+                {/* Save status */}
+                {saved && (
+                  <span className="ml-auto flex items-center gap-1 text-[11px] text-[#22C55E] shrink-0">
+                    <CheckCircle2 className="h-3 w-3" /> Saved
+                  </span>
+                )}
+                {saving && (
+                  <span className="ml-auto flex items-center gap-1 text-[11px] text-[#6B7280] shrink-0">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Saving…
+                  </span>
+                )}
+                {isDirty && !saving && !saved && (
+                  <span className="ml-auto text-[11px] text-[#F59E0B] shrink-0">Unsaved changes</span>
+                )}
               </div>
               {missing.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
@@ -386,30 +527,61 @@ export function ResumePreferencesTab() {
                 </p>
               )}
             </div>
-            <div className="shrink-0">
-              <Button className="bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white text-[12px] gap-1.5 h-8">
-                <Sparkles className="h-3.5 w-3.5" />
-                Improve with AI
-                <ChevronRight className="h-3.5 w-3.5" />
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                onClick={handleImproveWithAi}
+                disabled={improving}
+                variant="outline"
+                className="border-[#4F8CFF]/40 text-[#4F8CFF] hover:bg-[#4F8CFF]/10 hover:text-[#4F8CFF] text-[12px] gap-1.5 h-8"
+              >
+                {improving
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Improving…</>
+                  : <><Sparkles className="h-3.5 w-3.5" /> Improve with AI</>
+                }
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={saving || !isDirty}
+                className="bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white text-[12px] gap-1.5 h-8 disabled:opacity-40"
+              >
+                {saving
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
+                  : <><ChevronRight className="h-3.5 w-3.5" /> Save changes</>
+                }
               </Button>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* ── Auto-save notice ──────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg bg-[#4F8CFF]/5 border border-[#4F8CFF]/15">
-        <Info className="h-4 w-4 text-[#4F8CFF] shrink-0" />
-        <p className="text-[12px] text-[#6B7280]">
-          All changes are <span className="text-[#4F8CFF] font-medium">automatically saved</span> as you type — no Save button needed.
-        </p>
-      </div>
-
-      {error && (
+      {/* ── Error banners ─────────────────────────────────────────────────── */}
+      {saveError && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-[#EF4444]/5 border border-[#EF4444]/20 text-[12px] text-[#EF4444]">
           <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
+          {saveError}
         </div>
+      )}
+      {improveError && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-[#EF4444]/5 border border-[#EF4444]/20 text-[12px] text-[#EF4444]">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {improveError}
+        </div>
+      )}
+
+      {/* ── AI Suggestions panel ─────────────────────────────────────────── */}
+      {suggestions && (
+        <AiImprovePanel
+          suggestions={suggestions}
+          onApplySummary={(v) => { update("summary", v); setSuggestions((s) => s ? { ...s, summary: null } : s); }}
+          onApplyAchievements={(v) => { update("keyAchievements", v); setSuggestions((s) => s ? { ...s, keyAchievements: null } : s); }}
+          onAddKeywords={(kws) => {
+            const merged = Array.from(new Set([...form.mustHaveKeywords, ...kws]));
+            update("mustHaveKeywords", merged);
+          }}
+          onClose={() => setSuggestions(null)}
+        />
       )}
 
       {/* ── Section 1: Profile Core ───────────────────────────────────────── */}
@@ -685,7 +857,7 @@ export function ResumePreferencesTab() {
         </div>
 
         {form.includeCoverLetters && (
-          <div className="space-y-3 pl-0 pt-1">
+          <div className="space-y-3 pt-1">
             <div>
               <FieldLabel>Cover Letter Tone</FieldLabel>
               <SegmentedControl
@@ -754,6 +926,21 @@ export function ResumePreferencesTab() {
           </div>
         ))}
       </SectionCard>
+
+      {/* ── Bottom save button (convenience for long scroll) ─────────────── */}
+      <div className="flex justify-end pt-2 pb-4">
+        <Button
+          onClick={handleSave}
+          disabled={saving || !isDirty}
+          className="bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white text-[13px] gap-2 disabled:opacity-40"
+        >
+          {saving
+            ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+            : <><CheckCircle2 className="h-4 w-4" /> Save changes</>
+          }
+        </Button>
+      </div>
+
     </div>
   );
 }
