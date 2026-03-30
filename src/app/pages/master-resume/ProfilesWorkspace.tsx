@@ -452,7 +452,20 @@ export function ProfilesWorkspace({
     [profiles, selectedId]
   );
   const profileScores = useMemo(
-    () => profiles.map((profile) => ({ profile, score: computeProfileHealth(profile) })),
+    () =>
+      profiles
+        .map((profile) => ({ profile, score: computeProfileHealth(profile) }))
+        .sort((a, b) => {
+          if (b.score.readiness !== a.score.readiness) {
+            return b.score.readiness - a.score.readiness;
+          }
+          const updatedAtDiff =
+            new Date(b.profile.updatedAt).getTime() - new Date(a.profile.updatedAt).getTime();
+          if (updatedAtDiff !== 0) {
+            return updatedAtDiff;
+          }
+          return a.profile.name.localeCompare(b.profile.name);
+        }),
     [profiles]
   );
   const hasStructuredProfiles = profiles.length > 0;
