@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, Download, Loader2, X } from "lucide-react";
+import { AlertCircle, Download, Loader2, Pencil, X } from "lucide-react";
 import { documentsService, type DocumentDetail } from "../../services/documents.service";
+import { DocumentEditorModal } from "./DocumentEditorModal";
 
 export interface DocumentPreviewRef {
   id: string;
@@ -12,14 +13,25 @@ export interface DocumentPreviewRef {
 export function DocumentPreviewModal({
   doc,
   onClose,
+  onUpdated,
 }: {
   doc: DocumentPreviewRef;
   onClose: () => void;
+  onUpdated?: (updated: {
+    id: string;
+    title: string;
+    lastModified: string;
+    version: number;
+    contentHtml: string;
+    contentText: string;
+    kind?: "resume" | "cover_letter";
+  }) => void;
 }) {
   const [detail, setDetail] = useState<DocumentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     documentsService
@@ -74,6 +86,15 @@ export function DocumentPreviewModal({
         <div className="flex items-center justify-end gap-3 border-t border-[#1F2937] p-4">
           <button
             type="button"
+            onClick={() => setEditing(true)}
+            className="flex items-center gap-2 rounded-lg border border-[#374151] bg-[#1F2937] px-4 py-2 text-[13px] font-medium text-white transition-all disabled:opacity-60 hover:bg-[#374151]"
+            disabled={loading || !!error}
+          >
+            <Pencil className="h-4 w-4" />
+            Edit
+          </button>
+          <button
+            type="button"
             onClick={async () => {
               setDownloading(true);
               try {
@@ -98,6 +119,29 @@ export function DocumentPreviewModal({
           </button>
         </div>
       </div>
+
+      {editing && (
+        <DocumentEditorModal
+          doc={{
+            id: doc.id,
+            title: detail?.title ?? doc.title,
+            jobTitle: doc.jobTitle,
+            company: doc.company,
+          }}
+          onClose={() => setEditing(false)}
+          onSaved={(updated) => {
+            setDetail((prev) => prev ? {
+              ...prev,
+              title: updated.title,
+              version: updated.version,
+              lastModified: updated.lastModified,
+              content_html: updated.contentHtml,
+              content_text: updated.contentText,
+            } : prev);
+            onUpdated?.(updated);
+          }}
+        />
+      )}
     </div>
   );
 }

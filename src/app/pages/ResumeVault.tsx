@@ -3,6 +3,7 @@ import {
   FileText,
   Download,
   Eye,
+  Pencil,
   Plus,
   Loader2,
   AlertCircle,
@@ -12,7 +13,8 @@ import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { documentsService, DocumentItem } from "../services/documents.service";
-import { DocumentPreviewModal } from "../components/documents/DocumentPreviewModal";
+import { DocumentPreviewModal, type DocumentPreviewRef } from "../components/documents/DocumentPreviewModal";
+import { DocumentEditorModal } from "../components/documents/DocumentEditorModal";
 
 /* ─── helpers ──────────────────────────────────────────────────────────── */
 
@@ -45,9 +47,11 @@ function formatDate(iso: string): string {
 function ResumeCard({
   doc,
   onView,
+  onEdit,
 }: {
   doc: DocumentItem;
   onView: (doc: DocumentItem) => void;
+  onEdit: (doc: DocumentPreviewRef) => void;
 }) {
   const [downloading, setDownloading] = useState(false);
   const isAiGenerated = doc.origin === "ai_generated";
@@ -126,6 +130,22 @@ function ResumeCard({
         </Button>
         <button
           type="button"
+          onClick={() =>
+            onEdit({
+              id: doc.id,
+              title: doc.title,
+              jobTitle: doc.jobTitle,
+              company: doc.company,
+            })
+          }
+          className="flex items-center justify-center h-8 w-8 bg-[#1F2937] hover:bg-[#374151] text-white rounded-md transition-colors"
+          title="Edit"
+          aria-label="Edit"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
           onClick={async () => {
             setDownloading(true);
             try {
@@ -136,6 +156,7 @@ function ResumeCard({
           }}
           className="flex items-center justify-center h-8 w-8 bg-[#1F2937] hover:bg-[#374151] text-white rounded-md transition-colors"
           title="Download"
+          aria-label="Download"
           disabled={downloading}
         >
           {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -152,6 +173,7 @@ export function ResumeVault() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewing, setViewing] = useState<DocumentItem | null>(null);
+  const [editing, setEditing] = useState<DocumentPreviewRef | null>(null);
 
   useEffect(() => {
     documentsService
@@ -190,7 +212,12 @@ export function ResumeVault() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {docs.map((doc) => (
-            <ResumeCard key={doc.id} doc={doc} onView={setViewing} />
+            <ResumeCard
+              key={doc.id}
+              doc={doc}
+              onView={setViewing}
+              onEdit={setEditing}
+            />
           ))}
 
           {/* Create New card */}
@@ -232,7 +259,46 @@ export function ResumeVault() {
       </Card>
 
       {/* View modal */}
-      {viewing && <DocumentPreviewModal doc={viewing} onClose={() => setViewing(null)} />}
+      {viewing && (
+        <DocumentPreviewModal
+          doc={viewing}
+          onClose={() => setViewing(null)}
+          onUpdated={(updated) => {
+            setDocs((prev) =>
+              prev.map((doc) =>
+                doc.id === updated.id
+                  ? {
+                      ...doc,
+                      title: updated.title,
+                      version: updated.version,
+                      lastModified: updated.lastModified,
+                    }
+                  : doc
+              )
+            );
+          }}
+        />
+      )}
+      {editing && (
+        <DocumentEditorModal
+          doc={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => {
+            setDocs((prev) =>
+              prev.map((doc) =>
+                doc.id === updated.id
+                  ? {
+                      ...doc,
+                      title: updated.title,
+                      version: updated.version,
+                      lastModified: updated.lastModified,
+                    }
+                  : doc
+              )
+            );
+          }}
+        />
+      )}
     </div>
   );
 }
