@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { query, queryOne, transaction } from "../db/pool";
 import { requireAdmin } from "../middleware/adminAuth";
@@ -393,6 +394,48 @@ router.patch("/users/:id", validate(editUserSchema), async (req: Request, res: R
   }
 
   res.json({ message: "User updated." });
+});
+
+// ── PATCH /api/admin/users/:id/password ─────────────────────────────────────
+
+const updatePasswordSchema = z.object({
+  password: z.string().min(8).max(128),
+});
+
+router.patch("/users/:id/password", validate(updatePasswordSchema), async (req: Request, res: Response): Promise<void> => {
+  const { password } = req.body as z.infer<typeof updatePasswordSchema>;
+  const targetId = req.params.id;
+
+  const user = await queryOne<{ id: string }>(
+    `SELECT id FROM account_users WHERE id = $1`,
+    [targetId]
+  );
+  if (!user) {
+    res.status(404).json({ message: "User not found." });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  await transaction(async (q) => {
+    await q(
+      `UPDATE account_users
+       SET password_hash = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [passwordHash, targetId]
+    );
+
+    // Force the user to sign in again with the new password.
+    await q(
+      `UPDATE user_sessions
+       SET revoked_at = NOW()
+       WHERE user_id = $1
+         AND revoked_at IS NULL`,
+      [targetId]
+    );
+  });
+
+  res.json({ message: "Password updated successfully." });
 });
 
 // ── PATCH /api/admin/users/:id/status ───────────────────────────────────────

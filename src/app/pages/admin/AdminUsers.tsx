@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import {
   Users, Search, Shield, ShieldOff, Trash2, Edit2, ChevronLeft,
   ChevronRight, CheckCircle2, XCircle, Crown, UserCheck, UserX, RefreshCw,
+  KeyRound,
 } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -249,6 +250,96 @@ function DeleteModal({ user, onClose, onDeleted }: DeleteModalProps) {
   );
 }
 
+// ── Password Modal ───────────────────────────────────────────────────────────
+
+interface PasswordModalProps {
+  user: AdminUser;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function PasswordModal({ user, onClose, onSaved }: PasswordModalProps) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      await api.patch(`/admin/users/${user.id}/password`, { password });
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update password.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-[#111827] border border-[#1F2937] rounded-xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1F2937]">
+          <h2 className="text-[16px] font-semibold text-white">Reset Password</h2>
+          <button onClick={onClose} className="text-[#9CA3AF] hover:text-white transition-colors text-lg leading-none">✕</button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="rounded-lg border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-3 py-2.5 text-[12px] text-[#F59E0B]">
+            This will replace the current password for <span className="font-medium text-white">{user.email}</span> and revoke their active sessions.
+          </div>
+
+          {error && (
+            <div className="rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/30 px-3 py-2 text-[13px] text-[#EF4444]">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">New Password</Label>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="bg-[#0B0F14] border-[#1F2937] text-white h-9 text-[13px]"
+              placeholder="Minimum 8 characters"
+            />
+          </div>
+
+          <div>
+            <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Confirm Password</Label>
+            <Input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="bg-[#0B0F14] border-[#1F2937] text-white h-9 text-[13px]"
+              placeholder="Re-enter password"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 px-6 py-4 border-t border-[#1F2937]">
+          <Button variant="outline" onClick={onClose} className="flex-1 border-[#1F2937] text-[#9CA3AF] hover:text-white bg-transparent h-9 text-[13px]">
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={saving} className="flex-1 bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white h-9 text-[13px]">
+            {saving ? <><span className="h-3.5 w-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />Updating…</> : "Update Password"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export function AdminUsers() {
@@ -261,6 +352,7 @@ export function AdminUsers() {
   const [filterStatus, setFilterStatus]   = useState("");
   const [filterVerified, setFilterVerified] = useState("");
   const [editUser, setEditUser]   = useState<AdminUser | null>(null);
+  const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<AdminUser | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
@@ -314,6 +406,11 @@ export function AdminUsers() {
     setDeleteUser(null);
     loadUsers(1);
     loadStats();
+  }
+
+  function handlePasswordSaved() {
+    setPasswordUser(null);
+    loadUsers(pagination.page);
   }
 
   return (
@@ -440,6 +537,10 @@ export function AdminUsers() {
                         className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#4F8CFF] hover:bg-[#4F8CFF]/10 transition-colors" title="Edit">
                         <Edit2 className="h-4 w-4" />
                       </button>
+                      <button onClick={() => setPasswordUser(user)}
+                        className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#F59E0B] hover:bg-[#F59E0B]/10 transition-colors" title="Reset password">
+                        <KeyRound className="h-4 w-4" />
+                      </button>
                       {/* Toggle active */}
                       <button onClick={() => toggleStatus(user)} disabled={togglingId === user.id}
                         className={`p-1.5 rounded-lg transition-colors ${user.isActive
@@ -497,6 +598,7 @@ export function AdminUsers() {
 
       {/* Modals */}
       {editUser   && <EditModal   user={editUser}   onClose={() => setEditUser(null)}   onSaved={handleSaved} />}
+      {passwordUser && <PasswordModal user={passwordUser} onClose={() => setPasswordUser(null)} onSaved={handlePasswordSaved} />}
       {deleteUser && <DeleteModal user={deleteUser} onClose={() => setDeleteUser(null)} onDeleted={handleDeleted} />}
     </div>
   );
