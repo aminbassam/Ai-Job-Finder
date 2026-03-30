@@ -338,15 +338,18 @@ export function ResumeGenerationDialog({
                 <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
                   <p className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-[#4F8CFF]">
                     <Sparkles className="h-4 w-4" />
-                    Included Inputs
+                    Default AI Instructions
                   </p>
-                  <ul className="space-y-1.5 text-[12px] text-[#D1D5DB]">
-                    <li>• Only the resume profiles you select from the dropdown</li>
-                    <li>• Deactivated profiles are still ignored automatically</li>
-                    <li>• Legacy Preferences only if enabled in AI settings</li>
-                    <li>• Job title, description, and requirements</li>
-                    <li>• Global AI rules and formatting settings</li>
-                    {selectedCustomRole !== "__default" ? <li>• Custom AI role: {selectedCustomRole}</li> : null}
+                  <p className="text-[12px] leading-relaxed text-[#D1D5DB]">
+                    The generation goal and included inputs now follow the{" "}
+                    <span className="font-medium text-white">Default AI Instructions</span>{" "}
+                    section in Settings, together with your selected profiles, provider, and any optional custom AI role.
+                  </p>
+                  <ul className="mt-3 space-y-1.5 pl-4 text-[12px] text-[#9CA3AF] list-disc marker:text-[#6B7280]">
+                    <li>Selected resume profiles only</li>
+                    <li>Legacy preferences only when enabled</li>
+                    <li>Job details and requirements</li>
+                    {selectedCustomRole !== "__default" ? <li>Custom AI role: {selectedCustomRole}</li> : null}
                   </ul>
                 </div>
               </div>
@@ -358,7 +361,7 @@ export function ResumeGenerationDialog({
                     Goal
                   </p>
                   <p className="text-[12px] leading-relaxed text-[#D1D5DB]">
-                    Generate a high-quality, approval-ready tailored resume that improves ATS alignment without inventing experience or metrics.
+                    Use the Default AI Instructions in Settings to define the standing generation goal for tailored resumes and summaries.
                   </p>
                 </div>
               </div>

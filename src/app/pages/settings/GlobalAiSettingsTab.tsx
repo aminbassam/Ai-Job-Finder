@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain, Shield, Sparkles, Loader2, CheckCircle2, Wand2, Type, Palette } from "lucide-react";
+import { Brain, Shield, Sparkles, Loader2, CheckCircle2, Wand2 } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
@@ -94,11 +94,12 @@ const DEFAULTS: Required<Pick<
   | "noChangeTitles"
   | "noExaggerateMetrics"
   | "onlyRephrase"
-  | "resumeTitleFont"
-  | "resumeBodyFont"
-  | "resumeAccentColor"
-  | "resumeTemplate"
-  | "resumeDensity"
+  | "mirrorJobKeywords"
+  | "prioritizeRecentExperience"
+  | "keepBulletsConcise"
+  | "avoidFirstPerson"
+  | "emphasizeLeadership"
+  | "useLegacyResumePreferencesForAi"
 >> & { aiCustomRoles: string[]; aiDefaultInstructions: string } = {
   aiTone: "impact-driven",
   resumeStyle: "balanced",
@@ -112,50 +113,15 @@ const DEFAULTS: Required<Pick<
   noChangeTitles: true,
   noExaggerateMetrics: true,
   onlyRephrase: true,
+  mirrorJobKeywords: true,
+  prioritizeRecentExperience: true,
+  keepBulletsConcise: true,
+  avoidFirstPerson: true,
+  emphasizeLeadership: false,
+  useLegacyResumePreferencesForAi: false,
   aiCustomRoles: [],
   aiDefaultInstructions: "",
-  resumeTitleFont: "Playfair Display",
-  resumeBodyFont: "Source Sans 3",
-  resumeAccentColor: "#2563EB",
-  resumeTemplate: "modern",
-  resumeDensity: "balanced",
 };
-
-const TITLE_FONT_OPTIONS = [
-  "Playfair Display",
-  "Poppins",
-  "Space Grotesk",
-  "Merriweather",
-  "Libre Baskerville",
-] as const;
-
-const BODY_FONT_OPTIONS = [
-  "Source Sans 3",
-  "Inter",
-  "Lora",
-  "IBM Plex Sans",
-  "Work Sans",
-] as const;
-
-const ACCENT_COLORS = [
-  "#2563EB",
-  "#0F766E",
-  "#7C3AED",
-  "#B45309",
-  "#BE123C",
-] as const;
-
-const TEMPLATE_OPTIONS = [
-  { value: "modern", label: "Template 1", blurb: "Balanced accent-first layout." },
-  { value: "classic", label: "Template 2", blurb: "Traditional serif-forward format." },
-  { value: "compact", label: "Template 3", blurb: "Dense layout for maximum content." },
-  { value: "product-owner", label: "Template 4", blurb: "Bold product-focused layout." },
-  { value: "wordpress-operator", label: "Template 5", blurb: "Technical operations layout." },
-] as const;
-
-function isHexColor(value: string): boolean {
-  return /^#[0-9a-fA-F]{6}$/.test(value.trim());
-}
 
 export function GlobalAiSettingsTab() {
   const [loading, setLoading] = useState(true);
@@ -181,13 +147,15 @@ export function GlobalAiSettingsTab() {
           noChangeTitles: prefs.noChangeTitles ?? DEFAULTS.noChangeTitles,
           noExaggerateMetrics: prefs.noExaggerateMetrics ?? DEFAULTS.noExaggerateMetrics,
           onlyRephrase: prefs.onlyRephrase ?? DEFAULTS.onlyRephrase,
+          mirrorJobKeywords: prefs.mirrorJobKeywords ?? DEFAULTS.mirrorJobKeywords,
+          prioritizeRecentExperience: prefs.prioritizeRecentExperience ?? DEFAULTS.prioritizeRecentExperience,
+          keepBulletsConcise: prefs.keepBulletsConcise ?? DEFAULTS.keepBulletsConcise,
+          avoidFirstPerson: prefs.avoidFirstPerson ?? DEFAULTS.avoidFirstPerson,
+          emphasizeLeadership: prefs.emphasizeLeadership ?? DEFAULTS.emphasizeLeadership,
+          useLegacyResumePreferencesForAi:
+            prefs.useLegacyResumePreferencesForAi ?? DEFAULTS.useLegacyResumePreferencesForAi,
           aiCustomRoles: prefs.aiCustomRoles ?? [],
           aiDefaultInstructions: prefs.aiDefaultInstructions ?? "",
-          resumeTitleFont: prefs.resumeTitleFont ?? DEFAULTS.resumeTitleFont,
-          resumeBodyFont: prefs.resumeBodyFont ?? DEFAULTS.resumeBodyFont,
-          resumeAccentColor: prefs.resumeAccentColor ?? DEFAULTS.resumeAccentColor,
-          resumeTemplate: prefs.resumeTemplate ?? DEFAULTS.resumeTemplate,
-          resumeDensity: prefs.resumeDensity ?? DEFAULTS.resumeDensity,
         });
       })
       .catch((err: Error) => setError(err.message))
@@ -204,9 +172,6 @@ export function GlobalAiSettingsTab() {
     setSaved(false);
     setError(null);
     try {
-      if (!isHexColor(form.resumeAccentColor)) {
-        throw new Error("Resume accent color must be a full hex value like #1D4ED8.");
-      }
       await settingsService.updatePreferences({
         aiTone: form.aiTone,
         resumeStyle: form.resumeStyle,
@@ -220,13 +185,14 @@ export function GlobalAiSettingsTab() {
         noChangeTitles: form.noChangeTitles,
         noExaggerateMetrics: form.noExaggerateMetrics,
         onlyRephrase: form.onlyRephrase,
+        mirrorJobKeywords: form.mirrorJobKeywords,
+        prioritizeRecentExperience: form.prioritizeRecentExperience,
+        keepBulletsConcise: form.keepBulletsConcise,
+        avoidFirstPerson: form.avoidFirstPerson,
+        emphasizeLeadership: form.emphasizeLeadership,
         aiCustomRoles: form.aiCustomRoles,
         aiDefaultInstructions: form.aiDefaultInstructions,
-        resumeTitleFont: form.resumeTitleFont,
-        resumeBodyFont: form.resumeBodyFont,
-        resumeAccentColor: form.resumeAccentColor,
-        resumeTemplate: form.resumeTemplate,
-        resumeDensity: form.resumeDensity,
+        useLegacyResumePreferencesForAi: form.useLegacyResumePreferencesForAi,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -245,6 +211,16 @@ export function GlobalAiSettingsTab() {
       "Hiring manager",
       "Career coach",
       "Startup resume writer",
+    ],
+    []
+  );
+  const generationInputs = useMemo(
+    () => [
+      "Only the active resume profiles selected for the job",
+      "Deactivated profiles stay excluded automatically",
+      "Legacy preferences only when enabled as supplemental context",
+      "Job title, description, requirements, and captured metadata",
+      "Global AI rules, formatting defaults, and your custom AI role when selected",
     ],
     []
   );
@@ -443,8 +419,22 @@ export function GlobalAiSettingsTab() {
       <SectionCard
         icon={<Brain className="h-4 w-4 text-[#4F8CFF]" />}
         title="AI Behaviour Control"
-        subtitle="Global writing defaults used across resume generation, AI resume improvement, and other AI features."
+        subtitle="Global writing defaults used across resume generation, cover letters, summaries, and shared AI writing features."
       >
+        <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Applied automatically to</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {["Tailored resumes", "Resume summaries", "Cover letters", "Bullet rewriting", "AI job-fit writing"].map((item) => (
+              <span
+                key={item}
+                className="rounded-full border border-[#1F2937] bg-[#111827] px-3 py-1 text-[12px] text-[#D1D5DB]"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
+
         <div>
           <FieldLabel hint="How the AI frames your experience.">Writing Tone</FieldLabel>
           <SegmentedControl
@@ -482,12 +472,59 @@ export function GlobalAiSettingsTab() {
             ]}
           />
         </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          {(
+            [
+              [
+                "mirrorJobKeywords",
+                "Mirror supported job keywords",
+                "Match relevant wording from the job post only when your source material supports it.",
+              ],
+              [
+                "prioritizeRecentExperience",
+                "Prioritize recent experience",
+                "Bias the strongest and most recent work before older examples.",
+              ],
+              [
+                "keepBulletsConcise",
+                "Keep bullets concise",
+                "Prefer tight, scan-friendly bullets over long narrative lines.",
+              ],
+              [
+                "avoidFirstPerson",
+                "Avoid first-person voice",
+                "Keep resumes and summaries in third-person / implied voice unless letter style is needed.",
+              ],
+              [
+                "emphasizeLeadership",
+                "Elevate leadership signals",
+                "Highlight ownership, leadership, and cross-functional influence when your resume supports it.",
+              ],
+              [
+                "useLegacyResumePreferencesForAi",
+                "Blend legacy resume preferences",
+                "Use older preference fields as extra context when shaping AI output.",
+              ],
+            ] as const
+          ).map(([key, label, desc]) => (
+            <div key={key} className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-medium text-white">{label}</p>
+                  <p className="mt-1 text-[11px] text-[#6B7280]">{desc}</p>
+                </div>
+                <Switch checked={form[key]} onCheckedChange={(v) => update(key, v)} />
+              </div>
+            </div>
+          ))}
+        </div>
       </SectionCard>
 
       <SectionCard
         icon={<Sparkles className="h-4 w-4 text-[#4F8CFF]" />}
         title="Optimisation Settings"
-        subtitle="Shared ATS and cover-letter defaults for AI-generated application materials."
+        subtitle="Shared ATS and writing defaults for AI-generated application materials."
       >
         <div>
           <FieldLabel hint="How aggressively the AI should optimize for ATS keyword matching.">
@@ -503,62 +540,6 @@ export function GlobalAiSettingsTab() {
             ]}
           />
         </div>
-
-        <div className="pt-1 border-t border-[#1F2937]">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[13px] font-medium text-white">Generate Cover Letters</p>
-              <p className="text-[11px] text-[#6B7280] mt-0.5">Applies to all AI-assisted cover-letter flows.</p>
-            </div>
-            <Switch
-              checked={form.includeCoverLetters}
-              onCheckedChange={(v) => update("includeCoverLetters", v)}
-            />
-          </div>
-        </div>
-
-        {form.includeCoverLetters && (
-          <div className="space-y-3 pt-1">
-            <div>
-              <FieldLabel>Cover Letter Tone</FieldLabel>
-              <SegmentedControl
-                value={form.coverLetterTone}
-                onChange={(v) => update("coverLetterTone", v as typeof form.coverLetterTone)}
-                options={[
-                  { value: "formal", label: "Formal" },
-                  { value: "confident", label: "Confident" },
-                  { value: "friendly", label: "Friendly" },
-                ]}
-              />
-            </div>
-            <div>
-              <FieldLabel>Cover Letter Length</FieldLabel>
-              <SegmentedControl
-                value={form.coverLetterLength}
-                onChange={(v) => update("coverLetterLength", v as typeof form.coverLetterLength)}
-                options={[
-                  { value: "short", label: "Short" },
-                  { value: "medium", label: "Medium" },
-                  { value: "detailed", label: "Detailed" },
-                ]}
-              />
-            </div>
-            <div>
-              <FieldLabel hint="How deeply the AI should tailor by company and role.">
-                Personalisation Level
-              </FieldLabel>
-              <SegmentedControl
-                value={form.coverLetterPersonalization}
-                onChange={(v) => update("coverLetterPersonalization", v as typeof form.coverLetterPersonalization)}
-                options={[
-                  { value: "low", label: "Generic" },
-                  { value: "medium", label: "Personalised" },
-                  { value: "high", label: "Deep-dived" },
-                ]}
-              />
-            </div>
-          </div>
-        )}
       </SectionCard>
 
       <SectionCard
@@ -590,8 +571,33 @@ export function GlobalAiSettingsTab() {
       <SectionCard
         icon={<Wand2 className="h-4 w-4 text-[#4F8CFF]" />}
         title="Default AI Instructions"
-        subtitle="Set shared roles and default instructions that every AI feature should follow."
+        subtitle="These instructions are added to every supported AI request before generation starts."
       >
+        <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+          <p className="text-[13px] font-medium text-white">Always-on instruction layer</p>
+          <p className="mt-1 text-[12px] text-[#9CA3AF]">
+            Use this for evergreen guidance like tone, seniority, truthfulness, formatting preferences, or what the AI should emphasize every time.
+          </p>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+            <p className="mb-2 text-[12px] font-semibold uppercase tracking-[0.18em] text-[#4F8CFF]">Goal</p>
+            <p className="text-[12px] leading-relaxed text-[#D1D5DB]">
+              Generate approval-ready AI output that improves ATS alignment, stays factual, and uses the client&apos;s real resume data without inventing experience, titles, or metrics.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+            <p className="mb-2 text-[12px] font-semibold uppercase tracking-[0.18em] text-[#4F8CFF]">Included Inputs</p>
+            <ul className="space-y-1.5 pl-4 text-[12px] leading-relaxed text-[#D1D5DB] list-disc marker:text-[#6B7280]">
+              {generationInputs.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
         <div>
           <FieldLabel hint="Optional roles/personas the AI should consistently adopt.">
             Custom AI Roles
@@ -605,15 +611,43 @@ export function GlobalAiSettingsTab() {
         </div>
 
         <div>
-          <FieldLabel hint="A default prompt applied globally to resume generation, AI resume improvement, and other AI flows.">
-            Default Prompt Instructions
+          <FieldLabel hint="Applied to resume generation, summaries, cover letters, and other shared AI flows.">
+            Global AI Instructions
           </FieldLabel>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {[
+              "Keep claims conservative and factual.",
+              "Prefer measurable impact when available.",
+              "Write for senior product and operations roles.",
+              "Avoid generic buzzwords and filler.",
+            ].map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                onClick={() =>
+                  update(
+                    "aiDefaultInstructions",
+                    form.aiDefaultInstructions.includes(suggestion)
+                      ? form.aiDefaultInstructions
+                      : `${form.aiDefaultInstructions.trim()}${form.aiDefaultInstructions.trim() ? "\n" : ""}${suggestion}`
+                  )
+                }
+                className="rounded-full border border-[#1F2937] bg-[#0B0F14] px-3 py-1 text-[12px] text-[#D1D5DB] transition-colors hover:border-[#4F8CFF]/40 hover:text-white"
+              >
+                + {suggestion}
+              </button>
+            ))}
+          </div>
           <Textarea
             value={form.aiDefaultInstructions}
             onChange={(e) => update("aiDefaultInstructions", e.target.value)}
             placeholder="Example: Prioritize executive-level impact, keep claims conservative, and prefer measurable achievements when available."
             className="min-h-[140px] bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563]"
           />
+          <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-[#6B7280]">
+            <p>This instruction block is merged into the AI system prompt before the model sees your job and resume data.</p>
+            <span>{form.aiDefaultInstructions.trim().length} / 4000</span>
+          </div>
         </div>
       </SectionCard>
 
