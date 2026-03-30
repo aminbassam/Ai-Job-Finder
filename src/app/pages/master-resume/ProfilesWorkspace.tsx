@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowLeft,
   BookmarkCheck,
+  Briefcase,
   Edit3,
   Eye,
   LayoutList,
@@ -26,6 +27,7 @@ import { RichTextEditor } from "../../components/ui/rich-text-editor";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import {
   masterResumeService,
+  MatchedJobSuggestion,
   MasterResumeBullet,
   MasterResumeCustomSection,
   MasterResumeEducation,
@@ -222,6 +224,7 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
   const [legacyAiSource, setLegacyAiSource] = useState(false);
   const [editorMode, setEditorMode] = useState<"view" | "edit">("edit");
   const [profileScoreView, setProfileScoreView] = useState<"table" | "list">("table");
+  const [suggestedJobs, setSuggestedJobs] = useState<MatchedJobSuggestion[]>([]);
 
   async function loadProfiles(preferredId?: string | null) {
     setLoading(true);
@@ -333,6 +336,7 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
     setSaving(true);
     setError(null);
     setSaveMessage(null);
+    setSuggestedJobs([]);
     try {
       if (!draft.name.trim()) {
         throw new Error("Profile name is required.");
@@ -348,6 +352,9 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
       setSaveMessage("Master resume profile saved.");
       setEditorMode("edit");
       await loadProfiles(saved.id);
+
+      // Background fetch of matched jobs from the job board
+      masterResumeService.getMatchedJobs(saved.id).then(setSuggestedJobs).catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save master resume profile.");
     } finally {
@@ -566,6 +573,7 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
     setSaveMessage(null);
     setError(null);
     setEditorMode("edit");
+    setSuggestedJobs([]);
   }
 
   return (
@@ -863,6 +871,49 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
           {(error || saveMessage) && (
             <div className={`mb-4 rounded-lg border px-4 py-3 text-[13px] ${error ? "border-[#7F1D1D] bg-[#7F1D1D]/10 text-[#FCA5A5]" : "border-[#14532D] bg-[#14532D]/10 text-[#86EFAC]"}`}>
               {error || saveMessage}
+            </div>
+          )}
+
+          {suggestedJobs.length > 0 && (
+            <div className="mb-4 rounded-lg border border-[#4F8CFF]/20 bg-[#4F8CFF]/5 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Briefcase className="h-4 w-4 text-[#4F8CFF]" />
+                <p className="text-[13px] font-medium text-[#4F8CFF]">Matched Jobs from Your Job Board</p>
+              </div>
+              <div className="space-y-2">
+                {suggestedJobs.map((job) => (
+                  <div key={job.id} className="flex items-center justify-between rounded-md border border-[#1F2937] bg-[#0B0F14] px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-medium text-white">{job.title}</p>
+                      <p className="truncate text-[11px] text-[#6B7280]">
+                        {[job.company, job.location].filter(Boolean).join(" · ")}
+                        {job.remote ? " · Remote" : ""}
+                      </p>
+                    </div>
+                    <div className="ml-3 flex shrink-0 items-center gap-2">
+                      {job.aiScore != null && (
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                          job.matchTier === "strong" ? "bg-[#22C55E]/10 text-[#86EFAC]" :
+                          job.matchTier === "maybe"  ? "bg-[#F59E0B]/10 text-[#FCD34D]" :
+                          "bg-[#374151] text-[#9CA3AF]"
+                        }`}>
+                          {job.aiScore}/100
+                        </span>
+                      )}
+                      {job.sourceUrl && (
+                        <a
+                          href={job.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-[#4F8CFF] hover:underline"
+                        >
+                          View
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

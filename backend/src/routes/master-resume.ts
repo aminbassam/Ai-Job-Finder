@@ -10,7 +10,7 @@ import {
   saveMasterResumeProfile,
 } from "../services/master-resume";
 import { normalizeImportedResumeToProfile } from "../services/master-resume-import";
-import { queryOne } from "../db/pool";
+import { query, queryOne } from "../db/pool";
 
 const router = Router();
 router.use(requireAuth);
@@ -142,6 +142,61 @@ router.delete("/profiles/:id", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("[master-resume/delete]", err);
     res.status(500).json({ message: "Failed to delete master resume profile." });
+  }
+});
+
+router.get("/profiles/:id/matched-jobs", async (req: Request, res: Response) => {
+  try {
+    const profile = await getMasterResumeProfile(req.userId, req.params.id);
+    if (!profile) return res.status(404).json({ message: "Profile not found." });
+
+    const jobs = await query<Record<string, unknown>>(
+      `SELECT id, title, company, location, remote, ai_score, match_tier, source_url, status
+       FROM job_matches
+       WHERE user_id = $1
+         AND status != 'dismissed'
+         AND match_tier IN ('strong', 'maybe', 'new')
+       ORDER BY ai_score DESC NULLS LAST, created_at DESC
+       LIMIT 30`,
+      [req.userId]
+    );
+
+    const terms = [
+      ...profile.targetRoles,
+      ...profile.skills.core,
+      ...profile.skills.tools,
+    ].map((t) => t.toLowerCase()).slice(0, 20);
+
+    const scored = jobs
+      .map((job) => {
+        const titleLower = String(job.title ?? "").toLowerCase();
+        const matchBonus = terms.filter((term) =>
+          titleLower.includes(term) || term.includes(titleLower.split(" ")[0] ?? "")
+        ).length;
+        return { job, matchBonus };
+      })
+      .sort(
+        (a, b) =>
+          (Number(b.job.ai_score ?? 0) + b.matchBonus * 12) -
+          (Number(a.job.ai_score ?? 0) + a.matchBonus * 12)
+      )
+      .slice(0, 5)
+      .map(({ job }) => ({
+        id: String(job.id),
+        title: String(job.title),
+        company: job.company ? String(job.company) : undefined,
+        location: job.location ? String(job.location) : undefined,
+        remote: Boolean(job.remote),
+        aiScore: job.ai_score != null ? Number(job.ai_score) : undefined,
+        matchTier: job.match_tier ? String(job.match_tier) : undefined,
+        sourceUrl: job.source_url ? String(job.source_url) : undefined,
+        status: String(job.status),
+      }));
+
+    res.json(scored);
+  } catch (err) {
+    console.error("[master-resume/matched-jobs]", err);
+    res.status(500).json({ message: "Failed to load matched jobs." });
   }
 });
 

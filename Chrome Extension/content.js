@@ -119,32 +119,82 @@
   // ── Site-specific extractors ───────────────────────────────────────────────
 
   function extractLinkedIn() {
-    const title = firstText(
-      ".job-details-jobs-unified-top-card__job-title h1",
-      ".job-details-jobs-unified-top-card__job-title",
-      ".topcard__title",
-      "h1"
-    );
-    const company = firstText(
-      ".job-details-jobs-unified-top-card__company-name a",
-      ".job-details-jobs-unified-top-card__company-name",
-      ".topcard__org-name-link",
-      ".topcard__flavor a"
-    );
-    const locationRaw = firstText(
-      ".job-details-jobs-unified-top-card__primary-description-container .tvm__text",
-      ".job-details-jobs-unified-top-card__bullet",
-      ".topcard__flavor--bullet"
-    );
-    const descEl = document.querySelector(
-      "#job-details, .jobs-description__content, .jobs-description-content__text, .show-more-less-html__markup"
-    );
-    const description = descEl ? descEl.innerText.trim() : null;
+    // Auto-expand "See more" so the full description is in the DOM / innerText
+    document.querySelectorAll(
+      ".show-more-less-html__button--more, button.show-more-less-html__button"
+    ).forEach((btn) => {
+      try { btn.click(); } catch (_) { /* ignore */ }
+    });
 
-    const salaryEl = firstText(
-      ".job-details-jobs-unified-top-card__job-insight--highlight",
-      ".compensation__salary"
-    );
+    // Helper: get text using textContent so CSS-clipped/overflow-hidden text is included
+    function descText(sel) {
+      const el = document.querySelector(sel);
+      return el ? (el.textContent || "").replace(/\s+/g, " ").trim() || null : null;
+    }
+
+    // Helper: first non-empty match using class-contains selector (resilient to hashed suffixes)
+    function firstContains(...fragments) {
+      for (const frag of fragments) {
+        const el = document.querySelector(`[class*="${frag}"]`);
+        const t = el ? el.innerText.trim() : null;
+        if (t) return t;
+      }
+      return null;
+    }
+
+    const title =
+      firstText(
+        ".job-details-jobs-unified-top-card__job-title h1",
+        ".job-details-jobs-unified-top-card__job-title",
+        ".jobs-unified-top-card__job-title h1",
+        ".jobs-unified-top-card__job-title",
+        ".topcard__title",
+        "h1.t-24",
+        "h1[class*='t-24']"
+      ) ??
+      firstContains("unified-top-card__job-title", "top-card__title") ??
+      text("h1");
+
+    const company =
+      firstText(
+        ".job-details-jobs-unified-top-card__company-name a",
+        ".job-details-jobs-unified-top-card__company-name",
+        ".jobs-unified-top-card__company-name a",
+        ".jobs-unified-top-card__company-name",
+        ".topcard__org-name-link",
+        ".topcard__flavor a"
+      ) ??
+      firstContains("unified-top-card__company-name", "top-card__org-name");
+
+    const locationRaw =
+      firstText(
+        ".job-details-jobs-unified-top-card__primary-description-container .tvm__text",
+        ".job-details-jobs-unified-top-card__bullet",
+        ".jobs-unified-top-card__bullet",
+        ".jobs-unified-top-card__workplace-type",
+        ".topcard__flavor--bullet"
+      ) ??
+      firstContains("unified-top-card__bullet", "top-card__flavor--bullet");
+
+    // Use textContent on the most-specific description container first.
+    // textContent captures overflow-hidden/max-height-clipped text that innerText misses.
+    const description =
+      descText(".show-more-less-html__markup") ??
+      descText(".jobs-description-content__text--stretch") ??
+      descText(".jobs-description-content__text") ??
+      descText("[class*='jobs-description-content__text']") ??
+      descText(".jobs-description__content") ??
+      descText("[class*='jobs-description__content']") ??
+      descText("#job-details");
+
+    const salaryEl =
+      firstText(
+        ".job-details-jobs-unified-top-card__job-insight--highlight",
+        ".jobs-unified-top-card__job-insight--highlight",
+        ".compensation__salary",
+        ".salary"
+      ) ??
+      firstContains("job-insight--highlight", "compensation__salary");
     const { salaryMin, salaryMax } = parseSalary(salaryEl);
 
     // Extract LinkedIn job ID for deduplication

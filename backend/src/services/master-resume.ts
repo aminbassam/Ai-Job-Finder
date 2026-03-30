@@ -11,7 +11,7 @@ export interface MasterResumeBulletInput {
 export interface MasterResumeCustomSectionInput {
   id?: string;
   name: string;
-  description: string;
+  description?: string;
   tools?: string[];
   keywords?: string[];
 }
@@ -459,8 +459,8 @@ export async function getMasterResumeProfile(userId: string, profileId: string):
       id: String(experience.id),
       title: String(experience.title),
       company: String(experience.company),
-      startDate: experience.start_date ? String(experience.start_date) : null,
-      endDate: experience.end_date ? String(experience.end_date) : null,
+      startDate: experience.start_date ? new Date(experience.start_date as string).toISOString().slice(0, 10) : null,
+      endDate: experience.end_date ? new Date(experience.end_date as string).toISOString().slice(0, 10) : null,
       bullets: bullets
         .filter((bullet) => String(bullet.experience_id) === String(experience.id))
         .map((bullet) => ({
@@ -481,8 +481,8 @@ export async function getMasterResumeProfile(userId: string, profileId: string):
       school: String(item.school),
       degree: (item.degree as string | null) ?? null,
       fieldOfStudy: (item.field_of_study as string | null) ?? null,
-      startDate: item.start_date ? String(item.start_date) : null,
-      endDate: item.end_date ? String(item.end_date) : null,
+      startDate: item.start_date ? new Date(item.start_date as string).toISOString().slice(0, 10) : null,
+      endDate: item.end_date ? new Date(item.end_date as string).toISOString().slice(0, 10) : null,
       notes: (item.notes as string | null) ?? null,
     })),
     projects: projects.map((project) => ({

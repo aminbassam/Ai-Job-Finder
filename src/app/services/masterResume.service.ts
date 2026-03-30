@@ -95,6 +95,18 @@ export interface ResumeImportRecord {
   createdAt: string;
 }
 
+export interface MatchedJobSuggestion {
+  id: string;
+  title: string;
+  company?: string;
+  location?: string;
+  remote?: boolean;
+  aiScore?: number;
+  matchTier?: string;
+  sourceUrl?: string;
+  status: string;
+}
+
 export interface ResumeScoreResult {
   atsScore: number;
   impactScore: number;
@@ -145,4 +157,7 @@ export const masterResumeService = {
 
   scoreResume: (data: { profileId: string; jobTitle?: string; jobDescription: string }) =>
     api.post<ResumeScoreResult>("/ai/score-resume", data),
+
+  getMatchedJobs: (profileId: string) =>
+    api.get<MatchedJobSuggestion[]>(`/master-resume/profiles/${profileId}/matched-jobs`),
 };

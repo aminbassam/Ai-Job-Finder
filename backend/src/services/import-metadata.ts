@@ -199,6 +199,29 @@ function extractRequirementsFromHtml(html: string): string[] {
     .slice(0, 10);
 }
 
+/**
+ * Try to extract the full job description from LinkedIn's HTML body.
+ * LinkedIn serves SSR HTML with the description in specific containers.
+ */
+function extractLinkedInDescriptionFromHtml(html: string): string | undefined {
+  // LinkedIn's "show-more-less-html" markup div contains the full description HTML
+  const patterns = [
+    /<div[^>]+class="[^"]*show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i,
+    /<div[^>]+class="[^"]*show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]+class="[^"]*description__text[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i,
+    /<section[^>]+class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/section>/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      const text = stripTags(match[1]);
+      if (text.length > 100) return text.slice(0, 15000);
+    }
+  }
+  return undefined;
+}
+
 export async function fetchImportedJobDetails(sourceUrl: string): Promise<ImportedJobDetails | null> {
   let response: Response;
   try {
@@ -225,8 +248,13 @@ export async function fetchImportedJobDetails(sourceUrl: string): Promise<Import
     extractMeta(html, "og:title") ??
     extractMeta(html, "twitter:title") ??
     extractTitle(html);
+
+  // For LinkedIn: prefer JSON-LD description (full), then try HTML body extraction,
+  // then fall back to meta tags (which are truncated).
+  const isLinkedIn = sourceUrl.includes("linkedin.com");
   const rawDescription =
     getString(jobPosting?.description) ??
+    (isLinkedIn ? extractLinkedInDescriptionFromHtml(html) : undefined) ??
     extractMeta(html, "og:description") ??
     extractMeta(html, "description");
   const requirements =

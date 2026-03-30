@@ -9,6 +9,8 @@ interface ParsedExperience {
   start_date?: string;
   end_date?: string;
   bullets?: string[];
+  tools?: string[];
+  keywords?: string[];
 }
 
 interface ParsedProject {
@@ -374,28 +376,26 @@ export async function parseStructuredResumeJson(
   sourceType: "linkedin" | "upload",
   options: ParseStructuredOptions = {}
 ): Promise<ParsedResumeJson> {
-  const prompt = sourceType === "linkedin"
-    ? `Extract structured resume data from this LinkedIn profile text.
-
-Return ONLY valid JSON:
-{
-  "name": "",
-  "title": "",
-  "summary": "",
-  "experience": [
-    {
+  const experienceJsonShape = `{
       "title": "",
       "company": "",
       "start_date": "",
       "end_date": "",
-      "bullets": ["", ""]
-    }
-  ],
+      "bullets": ["achievement or responsibility sentence"],
+      "tools": ["specific technologies, software, frameworks used in this role"],
+      "keywords": ["3-6 role-specific skill/domain keywords"]
+    }`;
+
+  const sharedJsonTemplate = `{
+  "name": "",
+  "title": "",
+  "summary": "",
+  "experience": [${experienceJsonShape}],
   "skills": {
-    "core": [],
-    "tools": [],
-    "soft": [],
-    "certifications": []
+    "core": ["hard/functional skills e.g. Data Analysis, Project Management"],
+    "tools": ["every technology, software, language, platform mentioned"],
+    "soft": ["interpersonal/leadership skills e.g. Communication, Mentoring"],
+    "certifications": ["credential name with issuer if available"]
   },
   "certificates": [],
   "education": [
@@ -428,82 +428,40 @@ Return ONLY valid JSON:
   "custom_sections": [
     { "name": "", "description": "" }
   ]
-}
+}`;
+
+  const sharedRules = `- Do not invent or hallucinate data — use only what is in the source text.
+- Prefer empty strings/arrays over invented values.
+- Preserve all measurable outcomes, metrics, and dates.
+- skills.core: extract all functional/domain skills (e.g. Machine Learning, Financial Modeling).
+- skills.tools: extract EVERY specific tool, technology, language, or platform mentioned anywhere in the document.
+- skills.soft: extract interpersonal and leadership traits (e.g. Cross-functional Collaboration, Stakeholder Management).
+- skills.certifications: extract every credential/license/certificate name.
+- Per experience: tools = technologies specifically used in that role; keywords = 3-6 concise terms capturing the role's skills, domain, and impact.
+- custom_sections: ACTIVELY search for and create sections for Publications, Awards, Patents, Languages, Volunteer Work, Honors, Open Source, Professional Memberships, Conferences, or ANY content that doesn't fit the standard fields. Do not omit non-standard sections.
+- Put schools/degrees into education. Put standalone credentials into certificates.`;
+
+  const prompt = sourceType === "linkedin"
+    ? `Extract structured resume data from this LinkedIn profile text.
+
+Return ONLY valid JSON:
+${sharedJsonTemplate}
 
 Rules:
-- Do not hallucinate missing data.
-- Prefer empty strings/arrays instead of invented values.
-- Preserve dates if available.
-- Extract bullets as concise achievement-oriented lines when possible.
-- Put schools and degrees into education.
-- Put standalone credentials into certificates.
-- Use custom_sections for any notable extra sections such as Publications, Awards, Volunteer Work, Languages, Patents, Honors, or any section that doesn't fit the standard fields.
+${sharedRules}
+- Extract bullets as concise achievement-oriented lines.
 
 PROFILE TEXT:
 ${rawText.slice(0, 18_000)}`
     : `Convert this resume text into structured JSON.
 
 Return ONLY valid JSON:
-{
-  "name": "",
-  "title": "",
-  "summary": "",
-  "experience": [
-    {
-      "title": "",
-      "company": "",
-      "start_date": "",
-      "end_date": "",
-      "bullets": ["", ""]
-    }
-  ],
-  "skills": {
-    "core": [],
-    "tools": [],
-    "soft": [],
-    "certifications": []
-  },
-  "certificates": [],
-  "education": [
-    {
-      "school": "",
-      "degree": "",
-      "field_of_study": "",
-      "start_date": "",
-      "end_date": "",
-      "notes": ""
-    }
-  ],
-  "projects": [
-    {
-      "name": "",
-      "role": "",
-      "description": "",
-      "tools": [],
-      "team_size": 0,
-      "outcome": "",
-      "metrics": ""
-    }
-  ],
-  "leadership": {
-    "team_size": 0,
-    "scope": "",
-    "stakeholders": [],
-    "budget": ""
-  },
-  "custom_sections": [
-    { "name": "", "description": "" }
-  ]
-}
+${sharedJsonTemplate}
 
 Rules:
-- Do not invent data.
-- Clean and standardize wording.
-- Preserve measurable outcomes and tools.
-- Keep only resume-relevant content.
-- Put schools and degrees into education.
-- Put standalone credentials into certificates.
-- Use custom_sections for any notable extra sections such as Publications, Awards, Volunteer Work, Languages, Patents, Honors, or any section that doesn't fit the standard fields.
+${sharedRules}
+- Clean and standardize wording while preserving original meaning.
+- Keep all resume-relevant content.
 
 RESUME TEXT:
 ${rawText.slice(0, 18_000)}`;
@@ -513,7 +471,7 @@ ${rawText.slice(0, 18_000)}`;
       userId,
       system: "You are an expert resume parser. Return only structured JSON without commentary.",
       prompt,
-      maxTokens: 2200,
+      maxTokens: 3000,
       temperature: 0.1,
     });
   } catch (err) {
@@ -552,13 +510,26 @@ export function normalizeImportedResumeToProfile(parsed: ParsedResumeJson, fallb
     useForAi: true,
     experiences: (parsed.experience ?? [])
       .filter((experience) => experience.title || experience.company)
-      .map((experience) => ({
-        title: experience.title?.trim() || "Untitled Role",
-        company: experience.company?.trim() || "Unknown Company",
-        startDate: normalizeImportedDate(experience.start_date),
-        endDate: normalizeImportedDate(experience.end_date),
-        bullets: cleanArray(experience.bullets).map(bulletFromText),
-      })),
+      .map((experience) => {
+        const bulletTexts = cleanArray(experience.bullets ?? []);
+        // Merge all bullets into a single rich-text HTML description
+        const mergedDescription = bulletTexts.length > 0
+          ? `<ul>${bulletTexts.map((b) => `<li>${b}</li>`).join("")}</ul>`
+          : "";
+        return {
+          title: experience.title?.trim() || "Untitled Role",
+          company: experience.company?.trim() || "Unknown Company",
+          startDate: normalizeImportedDate(experience.start_date),
+          endDate: normalizeImportedDate(experience.end_date),
+          bullets: mergedDescription
+            ? [{
+                description: mergedDescription,
+                tools: cleanArray(experience.tools ?? []),
+                keywords: cleanArray(experience.keywords ?? []),
+              }]
+            : [],
+        };
+      }),
     skills: {
       core: cleanArray(skillsObject.core),
       tools: cleanArray(skillsObject.tools),
