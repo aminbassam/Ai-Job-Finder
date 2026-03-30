@@ -4,6 +4,7 @@ import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { LocationInput } from "../../components/ui/location-input";
 import { Switch } from "../../components/ui/switch";
 import { Badge } from "../../components/ui/badge";
 import { importJob } from "../../services/agent.service";
@@ -342,11 +343,10 @@ export function ImportTab() {
             </div>
             <div>
               <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Location</Label>
-              <Input
+              <LocationInput
                 value={form.location}
-                onChange={(e) => upd("location", e.target.value)}
-                placeholder="e.g. San Francisco, CA"
-                className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563]"
+                onChange={(value) => upd("location", value)}
+                placeholder="Search US city or state"
               />
             </div>
           </div>

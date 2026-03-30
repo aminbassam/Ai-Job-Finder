@@ -28,6 +28,7 @@ import { Switch } from "../components/ui/switch";
 import { Label } from "../components/ui/label";
 import { Slider } from "../components/ui/slider";
 import { TagInput } from "../components/ui/tag-input";
+import { LocationTagInput } from "../components/ui/location-tag-input";
 
 /* ─────────────────────────────── Types ────────────────────────────────── */
 
@@ -197,19 +198,6 @@ export function SearchJobs() {
   const [locations, setLocations] = useState<string[]>([]);
   const [remoteOnly, setRemoteOnly] = useState(false);
   const [includeNearby, setIncludeNearby] = useState(false);
-  const locationSuggestions = [
-    "Remote",
-    "San Francisco, CA",
-    "New York, NY",
-    "Austin, TX",
-    "Seattle, WA",
-    "Boston, MA",
-    "Chicago, IL",
-    "Los Angeles, CA",
-    "Denver, CO",
-    "London, UK",
-    "Toronto, Canada",
-  ];
 
   /* Salary */
   const [salaryRange, setSalaryRange] = useState([80, 200]);
@@ -542,11 +530,10 @@ export function SearchJobs() {
             <div className="space-y-4">
               <div>
                 <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Locations</Label>
-                <TagInput
+                <LocationTagInput
                   tags={locations}
                   onChange={setLocations}
-                  placeholder="e.g. San Francisco, CA…"
-                  suggestions={locationSuggestions}
+                  placeholder="Search US cities, states, or Remote…"
                 />
               </div>
 

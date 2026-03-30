@@ -17,6 +17,7 @@ import { Label } from "../../components/ui/label";
 import { Switch } from "../../components/ui/switch";
 import { Badge } from "../../components/ui/badge";
 import { TagInput } from "../../components/ui/tag-input";
+import { LocationTagInput } from "../../components/ui/location-tag-input";
 import { ConnectorConfig, getConnectors, saveConnector } from "../../services/agent.service";
 
 /* ─── Lane badge ──────────────────────────────────────────────────────── */
@@ -395,9 +396,9 @@ export function SourcesTab() {
                   <p className="text-[12px] font-medium text-white">Built In Austin defaults</p>
                   <div>
                     <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Preferred locations</Label>
-                    <TagInput
+                    <LocationTagInput
                       tags={((config.filters as Record<string, unknown> | undefined)?.locations as string[]) ?? []}
-                      placeholder="Austin, Remote"
+                      placeholder="Search US cities, states, or Remote…"
                       onChange={(v) => setConfig({
                         ...config,
                         filters: { ...(config.filters as Record<string, unknown> ?? {}), locations: v },

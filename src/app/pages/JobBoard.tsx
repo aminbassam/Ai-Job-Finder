@@ -171,6 +171,38 @@ function displayJobId(externalId?: string) {
 type ViewMode = "grid" | "list";
 type TabId = "all" | "strong" | "maybe" | "new" | "saved" | "applied";
 
+function shouldLinkAiSettings(message?: string | null) {
+  if (!message) return false;
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("ai provider") ||
+    normalized.includes("api key") ||
+    normalized.includes("connect and select an ai provider") ||
+    normalized.includes("provider first")
+  );
+}
+
+function InlineJobError({ message }: { message?: string | null }) {
+  if (!message) return null;
+
+  return (
+    <div className="flex items-start gap-2 text-[11px] text-[#EF4444]">
+      <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+      <div className="space-y-1">
+        <p>{message}</p>
+        {shouldLinkAiSettings(message) && (
+          <Link
+            to="/settings?tab=ai"
+            className="inline-flex font-medium text-[#FCA5A5] underline underline-offset-2 transition-colors hover:text-white"
+          >
+            Open AI Settings
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface CardState {
   moreInfoExpanded: boolean;
   aiExpanded: boolean;
@@ -732,12 +764,7 @@ function JobBoardItem({
         {actions}
       </div>
 
-      {state.generateError && (
-        <p className="mt-3 flex items-start gap-1 text-[11px] text-[#EF4444]">
-          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-          {state.generateError}
-        </p>
-      )}
+      {state.generateError && <div className="mt-3"><InlineJobError message={state.generateError} /></div>}
 
       {state.deleteError && (
         <p className="mt-2 flex items-start gap-1 text-[11px] text-[#EF4444]">
@@ -1384,12 +1411,7 @@ function JobBoardTableRow({
                 {actions}
               </div>
 
-              {state.generateError && (
-                <p className="flex items-start gap-1 text-[11px] text-[#EF4444]">
-                  <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                  {state.generateError}
-                </p>
-              )}
+              {state.generateError && <InlineJobError message={state.generateError} />}
 
               {state.deleteError && (
                 <p className="flex items-start gap-1 text-[11px] text-[#EF4444]">
@@ -1461,7 +1483,7 @@ function parseTab(value: string | null): TabId {
 }
 
 function parseViewMode(value: string | null): ViewMode {
-  return value === "grid" ? "grid" : "list";
+  return value === "list" ? "list" : "grid";
 }
 
 export function JobBoard() {
@@ -1776,7 +1798,7 @@ export function JobBoard() {
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#4F8CFF]">Profile Filter</p>
             <p className="text-[13px] text-white">
-              Showing jobs found by {activeProfileName || "this search profile"} in table view.
+              Showing jobs found by {activeProfileName || "this search profile"} in {viewMode === "list" ? "table" : "grid"} view.
             </p>
           </div>
           <button

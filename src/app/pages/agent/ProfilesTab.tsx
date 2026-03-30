@@ -13,6 +13,7 @@ import { Switch } from "../../components/ui/switch";
 import { Badge } from "../../components/ui/badge";
 import { Slider } from "../../components/ui/slider";
 import { TagInput } from "../../components/ui/tag-input";
+import { LocationTagInput } from "../../components/ui/location-tag-input";
 import {
   SearchProfile, ProfileInput, ConnectorConfig, ActivityLog,
   getProfiles, getConnectors, createProfile, updateProfile, deleteProfile, runProfile,
@@ -208,12 +209,10 @@ function ProfileForm({
       {/* Locations */}
       <div>
         <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Locations</Label>
-        <TagInput
+        <LocationTagInput
           tags={form.locations}
           onChange={(v) => upd("locations", v)}
-          placeholder="e.g. San Francisco, CA…"
-          suggestions={["Remote", "San Francisco, CA", "New York, NY",
-            "Austin, TX", "Seattle, WA", "Boston, MA", "London, UK"]}
+          placeholder="Search US cities, states, or Remote…"
         />
         <div className="flex gap-4 mt-2">
           <label className="flex items-center gap-2 text-[12px] text-[#9CA3AF] cursor-pointer">

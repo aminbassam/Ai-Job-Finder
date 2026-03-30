@@ -1,24 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { MapPin, Loader2, X } from "lucide-react";
 import { Input } from "./input";
-
-interface Suggestion {
-  displayName: string;
-  key: string;
-}
-
-interface NominatimResult {
-  lat: string;
-  lon: string;
-  address: {
-    city?: string;
-    town?: string;
-    village?: string;
-    county?: string;
-    state?: string;
-    country?: string;
-  };
-}
+import { searchUsLocations, type LocationSuggestion } from "../../utils/us-location-search";
 
 function useDebouncedValue(value: string, delay: number) {
   const [debounced, setDebounced] = useState(value);
@@ -45,9 +28,10 @@ export function LocationInput({
   name,
 }: LocationInputProps) {
   const [query, setQuery] = useState(value);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -70,51 +54,38 @@ export function LocationInput({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // Fetch suggestions from Nominatim (OpenStreetMap) — free, no API key
   useEffect(() => {
-    if (debouncedQuery.length < 2) {
+    if (!isFocused || debouncedQuery.trim().length < 1) {
+      abortRef.current?.abort();
       setSuggestions([]);
       setIsOpen(false);
+      setIsLoading(false);
       return;
     }
 
+    const controller = new AbortController();
     abortRef.current?.abort();
-    abortRef.current = new AbortController();
+    abortRef.current = controller;
 
     setIsLoading(true);
 
-    fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(debouncedQuery)}&format=json&limit=7&addressdetails=1`,
-      {
-        headers: { "Accept-Language": "en" },
-        signal: abortRef.current.signal,
-      }
-    )
-      .then((r) => r.json())
-      .then((data: NominatimResult[]) => {
-        const seen = new Set<string>();
-        const results: Suggestion[] = [];
-
-        for (const item of data) {
-          const { city, town, village, county, state, country } = item.address;
-          const parts = [city ?? town ?? village ?? county, state, country].filter(Boolean);
-          const displayName = parts.join(", ");
-
-          if (displayName && !seen.has(displayName)) {
-            seen.add(displayName);
-            results.push({ displayName, key: `${item.lat}-${item.lon}` });
-          }
-        }
-
+    searchUsLocations(debouncedQuery, controller.signal)
+      .then((results) => {
         setSuggestions(results);
-        setIsOpen(results.length > 0);
+        setIsOpen(isFocused && results.length > 0);
         setActiveIndex(-1);
       })
       .catch((err) => {
         if (err.name !== "AbortError") setSuggestions([]);
       })
-      .finally(() => setIsLoading(false));
-  }, [debouncedQuery]);
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [debouncedQuery, isFocused]);
 
   function handleSelect(suggestion: Suggestion) {
     setQuery(suggestion.displayName);
@@ -163,7 +134,14 @@ export function LocationInput({
           value={query}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onFocus={() => suggestions.length > 0 && setIsOpen(true)}
+          onFocus={() => {
+            setIsFocused(true);
+            if (suggestions.length > 0) setIsOpen(true);
+          }}
+          onBlur={() => {
+            setIsFocused(false);
+            window.setTimeout(() => setIsOpen(false), 150);
+          }}
           placeholder={placeholder}
           autoComplete="off"
           className={`pl-9 pr-8 bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#9CA3AF] ${className}`}
@@ -205,7 +183,7 @@ export function LocationInput({
             </button>
           ))}
           <div className="px-3 py-1.5 border-t border-[#1F2937] flex items-center gap-1">
-            <span className="text-[10px] text-[#6B7280]">Powered by OpenStreetMap</span>
+            <span className="text-[10px] text-[#6B7280]">US-only suggestions via OpenStreetMap</span>
           </div>
         </div>
       )}
