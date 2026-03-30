@@ -65,8 +65,10 @@ export function Analytics() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadAnalytics() {
-      setLoading(true);
+    async function loadAnalytics(showLoader = false) {
+      if (showLoader) {
+        setLoading(true);
+      }
       setError(null);
       try {
         const [
@@ -94,16 +96,31 @@ export function Analytics() {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to load analytics.");
       } finally {
-        if (!cancelled) {
+        if (!cancelled && showLoader) {
           setLoading(false);
         }
       }
     }
 
-    void loadAnalytics();
+    void loadAnalytics(true);
+
+    const handleWindowFocus = () => {
+      void loadAnalytics();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadAnalytics();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

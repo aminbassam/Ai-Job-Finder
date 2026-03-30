@@ -95,8 +95,10 @@ export function Dashboard() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadDashboard() {
-      setLoading(true);
+    async function loadDashboard(showLoader = false) {
+      if (showLoader) {
+        setLoading(true);
+      }
       setError(null);
       try {
         const [
@@ -138,16 +140,31 @@ export function Dashboard() {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to load dashboard.");
       } finally {
-        if (!cancelled) {
+        if (!cancelled && showLoader) {
           setLoading(false);
         }
       }
     }
 
-    void loadDashboard();
+    void loadDashboard(true);
+
+    const handleWindowFocus = () => {
+      void loadDashboard();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadDashboard();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
