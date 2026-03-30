@@ -22,8 +22,9 @@ import { profileService, type ProfileData } from "../services/profile.service";
 const USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30}[A-Za-z0-9])?$/;
 
 export function Settings() {
-  const { updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isAdmin = true;
   const initialTab = searchParams.get("tab") ?? "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
 
