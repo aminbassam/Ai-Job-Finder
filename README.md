@@ -24,7 +24,7 @@ Developer onboarding:
     pages/master-resume/       ← ProfilesWorkspace, ImportWorkspace
     pages/agent/               ← ProfilesTab, SourcesTab, ResultsTab, ImportTab, RunsTab
     pages/settings/            ← ResumePreferencesTab, AiProvidersTab, GlobalAiSettingsTab,
-    |                             IntegrationsTab
+    |                             IntegrationsTab, Download Extension
     pages/admin/               ← AdminUsers dashboard, PlatformLogs
     pages/auth/                ← Login, Signup, ForgotPassword, VerifyEmail (OTP)
     components/ui/             ← shadcn/ui components + TagInput, LocationInput
@@ -38,7 +38,7 @@ Developer onboarding:
 /backend/                      ← API server (Node.js + Express + TypeScript)
   src/
     db/pool.ts                 ← PostgreSQL connection pool
-    db/seed.ts                 ← Superadmin + demo data seed
+    db/seed.ts                 ← Local admin seed + demo workspace seed
     db/migrate.ts              ← Standalone migration runner
     middleware/auth.ts         ← JWT verify + session check
     middleware/adminAuth.ts    ← requireAdmin middleware
@@ -94,6 +94,8 @@ Developer onboarding:
     011_multi_profile_master_resume.sql ← structured multi-profile master resume system
     016_gmail_linkedin_ingestion.sql ← Gmail OAuth + synced LinkedIn email jobs
     017_profile_activity_logs.sql ← per-profile action timeline (create/run/pause/cancel)
+    018_account_usernames.sql  ← optional username sign-in support
+    019_demo_users.sql         ← demo users + 24h cleanup support
 
 /docker-compose.yml            ← PostgreSQL 16 container
 ```
@@ -139,12 +141,21 @@ npm install
 
 cp .env.example .env   # then edit with your values
 
-npm run db:seed        # seed superadmin + demo data
+npm run db:seed        # seed local admin + demo data
 npm run dev            # hot-reload dev server
 ```
 
 API available at `http://localhost:3001`
 Health check: `curl http://localhost:3001/health`
+
+Optional before seeding:
+
+```env
+SEED_ADMIN_EMAIL=admin@local.jobflow.test
+SEED_ADMIN_PASSWORD=choose-a-strong-local-password
+```
+
+If `SEED_ADMIN_PASSWORD` is omitted, the seed script generates a local-only admin password and prints it once to the console.
 
 > All migrations run automatically on every startup — no manual step needed.
 > The scheduler starts automatically with the server for both Job Agent polling and Gmail LinkedIn email ingestion.
@@ -169,13 +180,15 @@ Open **http://localhost:5678**. All `/api/*` requests proxy to `http://localhost
 
 ---
 
-## Default Accounts
+## Seeded Local Data
 
-| Role | Email | Password |
-|------|-------|----------|
-| Superadmin | `admin@jobflow.ai` | `Admin@123456` |
+`npm run db:seed` creates:
 
-Seeded automatically by `npm run db:seed` with Agency plan, 5,000 AI credits, pre-verified email, and admin dashboard access at `/admin/users`.
+- subscription plans
+- local admin access for development
+- a seeded demo workspace for dashboard / job board walkthroughs
+
+Admin credentials are intentionally not committed to the repository or this README. Set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` before seeding, or use the one-time generated password printed by the seed script.
 
 ---
 
@@ -249,7 +262,7 @@ Fetch from connectors → Filter excluded companies → Score (0-100)
 | **Lane 2** — Official API | ZipRecruiter | API key | Official Partner API; fan-out across job titles × locations |
 | **Lane 2** — Official API | USAJobs | Email + API key | US federal jobs via `data.usajobs.gov`; public positions only |
 | **Lane 2** — Official API | Upwork | OAuth2 token | GraphQL search — contract/freelance work |
-| **Lane 3** — Browser Extension | LinkedIn, Indeed, any page | Extension | One-click save (coming soon) |
+| **Lane 3** — Browser Extension | LinkedIn, Indeed, Glassdoor, ZipRecruiter, Lever, Greenhouse, Workday, any page | Extension | One-click save from supported job pages into the Job Board |
 | **Lane 4** — Email Ingestion | LinkedIn alerts via Gmail | Gmail OAuth | Reads LinkedIn alert emails, imports jobs, and scores matches automatically |
 
 #### Profile Activity Log
@@ -287,7 +300,7 @@ All jobs discovered by search profiles are inserted as `match_tier='new'` and im
 ### Job Board (`/jobs`)
 Unified workspace for reviewing all matched and imported jobs.
 
-- **Grid view** — card layout with score ring, tier badge, and quick actions
+- **Grid view** — default card layout with score ring, tier badge, and quick actions
 - **List view** — compact table with bulk selection:
   - Select All checkbox (with indeterminate state when partially selected)
   - Per-row checkboxes; selected rows highlighted
@@ -295,7 +308,9 @@ Unified workspace for reviewing all matched and imported jobs.
   - Bulk delete removes selected jobs from the database with optimistic UI
 - AI analysis panel per job: score breakdown bars, strengths, weaknesses, keywords to mirror
 - Resume generation per job: linked tailored resume or generate button
+- Missing AI provider / API key errors link directly to **Settings → AI Providers**
 - Tabs: All · Strong · Maybe · New · Saved · Applied
+- Source badges distinguish `Agent`, `Manual`, and `Extension` imports
 
 ### Resume (`/resume`)
 The Resume area is now the **Master Resume** hub.
@@ -336,16 +351,24 @@ See:
 
 ### Authentication
 - Signup / Login with JWT (7-day sessions, revocable)
+- Sign in with either email or optional username
 - **Email OTP verification** — 6-digit code, 15-min TTL, 5-attempt limit
 - Forgot password / Reset password via email link
+- In-app password change from Settings
 - Rate-limited auth routes (20 req/15 min)
 
 ### Settings — Profile Tab
 - Live form pre-populated from `GET /api/profile`
-- Editable: first name, last name, job title, LinkedIn URL
-- Location autocomplete powered by OpenStreetMap (Nominatim) — no API key required
+- Editable: first name, last name, username, job title, LinkedIn URL
+- US-only city/state autocomplete powered by OpenStreetMap (Nominatim) — no API key required
 - Email is read-only
 - Saves to `PUT /api/profile` and syncs name/location to sidebar instantly
+- Includes a signed-in password change form
+
+### Location Search Experience
+- Shared US-only location suggestions are used across profile settings, manual job import, search profile locations, connector preferred locations, and the broader search workspace
+- Suggestions now stay closed until the field is focused instead of rendering open by default
+- Supports US states, US cities, and `Remote`
 
 ### Settings — Resume Preferences (also at `/resume`)
 
@@ -385,12 +408,18 @@ These settings are used by:
 - **Real key validation**: backend calls `/v1/models` on OpenAI / Anthropic with 8s timeout
 - **AES-256-GCM encryption** at rest — IV + auth tag in separate DB columns
 - **Model selector** after connection: gpt-4o / gpt-4o-mini / gpt-4-turbo / gpt-3.5-turbo · claude-opus-4-6 / claude-sonnet-4-6 / claude-haiku-4-5
+- Setup instructions and official help links for finding provider API keys
 - Test connection button · Disconnect removes encrypted key
+
+### Settings — Download Extension
+- Direct ZIP download for the Chrome extension from the app
+- Short install steps for loading the unpacked extension in Chrome
+- Live API base URL can be pointed at your hosted subdomain
 
 ### Admin Dashboard (`/admin/users`)
 Requires `is_admin = true`.
 - Stats bar, paginated user table, search + plan/status/verification filters
-- Edit user, activate/deactivate (revokes all sessions), delete
+- Edit user, activate/deactivate (revokes all sessions), reset password, delete
 - Self-protection: admins cannot deactivate or remove their own admin flag
 
 ---
@@ -403,6 +432,7 @@ Requires `is_admin = true`.
 | POST | `/api/auth/signup` | Create account, sends OTP email |
 | POST | `/api/auth/login` | Sign in → `{ token, user }` |
 | POST | `/api/auth/logout` | Revoke session |
+| PATCH | `/api/auth/change-password` | Change password while signed in |
 | POST | `/api/auth/forgot-password` | Send password reset email |
 | POST | `/api/auth/reset-password` | Apply new password with token |
 | POST | `/api/auth/send-verification` | Resend OTP email (auth required) |
@@ -467,6 +497,7 @@ Requires `is_admin = true`.
 | GET | `/api/admin/stats` | Platform-wide user statistics |
 | GET | `/api/admin/users` | Paginated user list with search + filters |
 | PATCH | `/api/admin/users/:id` | Edit user (name, email, plan, isAdmin) |
+| PATCH | `/api/admin/users/:id/password` | Reset a user's password and revoke active sessions |
 | PATCH | `/api/admin/users/:id/status` | Activate / deactivate user |
 | DELETE | `/api/admin/users/:id` | Hard delete user |
 
@@ -482,6 +513,8 @@ Requires `is_admin = true`.
 | GET | `/api/analytics/jobs-per-week` | Weekly job counts |
 | GET | `/api/analytics/source-performance` | Source breakdown |
 | GET | `/api/documents` | Resume & cover letter list |
+| GET | `/health` | Direct API health check |
+| GET | `/api/health` | Reverse-proxy-safe API health alias |
 
 ---
 
@@ -491,7 +524,7 @@ Migrations in `db/migrations/` apply automatically on every backend startup (ide
 
 | Table | Purpose |
 |-------|---------|
-| `account_users` | Users with `is_admin`, `email_verified_at`, `current_job_title`, `linkedin_url` |
+| `account_users` | Users with `is_admin`, `is_demo`, `username`, `email_verified_at`, `current_job_title`, `linkedin_url` |
 | `user_sessions` | Revocable JWT sessions |
 | `password_reset_tokens` | Time-limited reset links |
 | `email_verification_tokens` | 6-digit OTP codes (hashed) |
@@ -527,6 +560,8 @@ Migrations in `db/migrations/` apply automatically on every backend startup (ide
 | `JWT_EXPIRES_IN` | `7d` | Token expiry |
 | `CORS_ORIGIN` | `http://localhost:5678` | Allowed frontend origin |
 | `APP_URL` | `http://localhost:5678` | Used in email links |
+| `SEED_ADMIN_EMAIL` | `admin@local.jobflow.test` | Optional local admin email used by `npm run db:seed` |
+| `SEED_ADMIN_PASSWORD` | *(generated if blank)* | Optional local admin password used by `npm run db:seed` |
 | `AUTH_RATE_LIMIT` | `20` | Max auth requests per 15 min |
 | `SMTP_HOST` | *(optional)* | SMTP server (e.g. `sandbox.smtp.mailtrap.io`) |
 | `SMTP_PORT` | `2525` | SMTP port |
@@ -598,6 +633,10 @@ The job agent scheduler starts automatically with the server process — no sepa
 | ✅ | AES-256-GCM encrypted AI provider keys |
 | ✅ | Gmail LinkedIn alert email ingestion (Lane 4) |
 | ✅ | Auto-generated tailored resume for strong matches |
-| 🔜 | Browser extension (Lane 3 — LinkedIn, Indeed, any page) |
+| ✅ | Browser extension (Lane 3 manual capture + Settings ZIP download) |
+| ✅ | Username sign-in + in-app password change |
+| ✅ | Demo workspace with seeded mock data and 24-hour cleanup |
+| ✅ | US-only shared location suggestions across settings, imports, and agent profile flows |
+| ✅ | Job Board grid default + AI-settings link for provider/API-key errors |
 | 🔜 | Push / email notifications for new strong matches |
 | 🔜 | Upwork OAuth2 flow in the UI |
