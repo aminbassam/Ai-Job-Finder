@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { User, Sparkles, Bell, CreditCard, PlugZap } from "lucide-react";
+import { User, Sparkles, Bell, CreditCard, PlugZap, Download } from "lucide-react";
 import { AiProvidersTab } from "./settings/AiProvidersTab";
 import { GlobalAiSettingsTab } from "./settings/GlobalAiSettingsTab";
 import { IntegrationsTab } from "./settings/IntegrationsTab";
@@ -207,6 +207,10 @@ export function Settings() {
           <TabsTrigger value="billing" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
             <CreditCard className="h-4 w-4 mr-2" />
             Billing
+          </TabsTrigger>
+          <TabsTrigger value="downloads" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+            <Download className="h-4 w-4 mr-2" />
+            Download Extension
           </TabsTrigger>
         </TabsList>
 
@@ -544,6 +548,36 @@ export function Settings() {
                 <Button variant="outline" className="text-[#EF4444] hover:text-[#EF4444] border-[#EF4444]/30 hover:bg-[#EF4444]/10">
                   Cancel Plan
                 </Button>
+              </div>
+            </div>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="downloads">
+          <Card className="bg-[#111827] border-[#1F2937] p-6 max-w-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-[20px] font-semibold text-white mb-2">Chrome Extension</h2>
+                <p className="text-[13px] text-[#9CA3AF]">
+                  Download the latest extension package as a ZIP, then extract it and load it in Chrome from `chrome://extensions` using `Load unpacked`.
+                </p>
+              </div>
+              <Button asChild className="bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white">
+                <a href="/downloads/jobflow-chrome-extension.zip" download>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download ZIP
+                </a>
+              </Button>
+            </div>
+
+            <div className="mt-6 rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">How to use</p>
+              <div className="mt-3 space-y-2 text-[13px] text-[#9CA3AF]">
+                <p>1. Download and unzip the extension package.</p>
+                <p>2. Open `chrome://extensions` in Chrome.</p>
+                <p>3. Turn on `Developer mode`.</p>
+                <p>4. Click `Load unpacked` and select the unzipped extension folder.</p>
+                <p>5. In the extension settings, use `https://jobfinder.aminbassam.com/api` as the API URL.</p>
               </div>
             </div>
           </Card>

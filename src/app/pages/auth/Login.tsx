@@ -25,6 +25,7 @@ export function Login() {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = useForm<LoginFormValues>();
 
@@ -39,6 +40,12 @@ export function Login() {
       );
     }
   };
+
+  function fillDemoCredentials() {
+    setValue("identifier", "demo");
+    setValue("password", "Demo@123456");
+    setServerError("");
+  }
 
   return (
     <div className="min-h-screen bg-[#0B0F14] flex items-center justify-center p-8">
@@ -164,6 +171,34 @@ export function Login() {
                 Sign up
               </Link>
             </p>
+          </div>
+
+          <div className="mt-6 rounded-xl border border-[#4F8CFF]/20 bg-[#4F8CFF]/10 p-4">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#93C5FD]">
+              Client Demo Access
+            </p>
+            <p className="mt-2 text-[13px] text-[#DBEAFE]">
+              Use this account to preview the dashboard and sample workflow without signing up.
+            </p>
+            <div className="mt-3 space-y-1 text-[13px] text-white">
+              <p>
+                Username: <span className="font-semibold">demo</span>
+              </p>
+              <p>
+                Password: <span className="font-semibold">Demo@123456</span>
+              </p>
+            </div>
+            <p className="mt-3 text-[12px] text-[#BFDBFE]">
+              Demo activity resets every 24 hours.
+            </p>
+            <Button
+              type="button"
+              onClick={fillDemoCredentials}
+              variant="outline"
+              className="mt-4 w-full border-[#93C5FD]/30 bg-[#0B0F14]/40 text-white hover:bg-[#1D4ED8]/20"
+            >
+              Use Demo Credentials
+            </Button>
           </div>
         </Card>
 

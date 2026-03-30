@@ -1,4 +1,5 @@
 import { Briefcase, Target, FileText, Send, TrendingUp, Sparkles, Clock, AlertTriangle } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { StatCard } from "../components/shared/StatCard";
 import { Card } from "../components/ui/card";
@@ -6,8 +7,22 @@ import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { mockActivityEvents, mockResumes } from "../data/mockData";
 import { Button } from "../components/ui/button";
+import { settingsService, type AiProviderInfo } from "../services/settings.service";
+import { useAuth } from "../contexts/AuthContext";
 
 export function Dashboard() {
+  const { user } = useAuth();
+  const [providers, setProviders] = useState<AiProviderInfo[]>([]);
+
+  useEffect(() => {
+    settingsService
+      .getAiProviders()
+      .then((rows) => setProviders(rows))
+      .catch(() => setProviders([]));
+  }, []);
+
+  const hasConnectedProvider = providers.some((provider) => provider.status === "connected");
+
   const sources = [
     { name: "LinkedIn", count: 35, progress: 70 },
     { name: "Indeed", count: 18, progress: 36 },
@@ -36,6 +51,26 @@ export function Dashboard() {
         <p className="text-[14px] text-[#9CA3AF]">
           Welcome back! Here's what's happening with your job search.
         </p>
+        {!hasConnectedProvider && (
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#4F8CFF]/20 bg-[#4F8CFF]/10 px-4 py-3 text-[13px] text-[#DBEAFE]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#93C5FD]" />
+            <p>
+              Set up your AI API key in{" "}
+              <Link to="/settings?tab=ai" className="font-medium text-white underline underline-offset-2">
+                Settings
+              </Link>{" "}
+              first to unlock resume generation, job analysis, and the rest of the AI-powered features.
+            </p>
+          </div>
+        )}
+        {user?.isDemo && (
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-4 py-3 text-[13px] text-[#FCD34D]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              You are using the shared demo account. Demo data and anything added here are automatically cleared every 24 hours.
+            </p>
+          </div>
+        )}
         <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-4 py-3 text-[13px] text-[#FCD34D]">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <p>

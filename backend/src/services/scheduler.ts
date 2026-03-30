@@ -9,6 +9,7 @@ import cron from "node-cron";
 import { pool } from "../db/pool";
 import { PipelineProfile, runPipeline } from "./pipeline";
 import { syncAllConnectedGmailAccounts } from "./gmail-linkedin-ingestion";
+import { cleanupExpiredDemoUserData } from "./demo-user";
 
 function nextWeekdayAtEight(now: Date): Date {
   const next = new Date(now);
@@ -169,5 +170,10 @@ export function startScheduler(): void {
       console.error("[gmail-sync] Unhandled scheduler error:", err)
     );
   });
-  console.log("[scheduler] Started — polling agent profiles every 30 min and Gmail every 15 min");
+  cron.schedule("0 * * * *", () => {
+    cleanupExpiredDemoUserData().catch((err) =>
+      console.error("[demo-user] Unhandled cleanup error:", err)
+    );
+  });
+  console.log("[scheduler] Started — polling agent profiles every 30 min, Gmail every 15 min, and demo cleanup hourly");
 }

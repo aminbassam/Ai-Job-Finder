@@ -74,9 +74,9 @@ async function createVerificationToken(userId: string): Promise<string> {
 async function buildUserResponse(userId: string) {
   const user = await queryOne<{
     id: string; email: string; username: string | null; first_name: string; last_name: string;
-    location_text: string | null; email_verified_at: string | null; is_admin: boolean;
+    location_text: string | null; email_verified_at: string | null; is_admin: boolean; is_demo: boolean;
   }>(
-    `SELECT id, email, username, first_name, last_name, location_text, email_verified_at, is_admin
+    `SELECT id, email, username, first_name, last_name, location_text, email_verified_at, is_admin, is_demo
      FROM account_users WHERE id = $1`,
     [userId]
   );
@@ -112,6 +112,7 @@ async function buildUserResponse(userId: string) {
     totalCredits,
     emailVerified: user.email_verified_at !== null,
     isAdmin: user.is_admin,
+    isDemo: user.is_demo,
   };
 }
 

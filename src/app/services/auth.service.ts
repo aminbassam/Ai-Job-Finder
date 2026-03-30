@@ -47,6 +47,7 @@ export interface AuthResponse {
     location?: string;
     emailVerified: boolean;
     isAdmin: boolean;
+    isDemo?: boolean;
   };
 }
 

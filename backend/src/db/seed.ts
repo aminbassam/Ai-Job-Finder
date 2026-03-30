@@ -5,8 +5,9 @@
  * Safe to re-run (uses INSERT … ON CONFLICT DO NOTHING).
  */
 import "../config/load-env";
-import bcrypt from "bcryptjs";
 import { pool } from "./pool";
+import bcrypt from "bcryptjs";
+import { ensureDemoUserAndSeedData, DEMO_EMAIL, DEMO_PASSWORD, DEMO_USERNAME } from "../services/demo-user";
 
 async function seed() {
   console.log("Seeding database…");
@@ -264,6 +265,12 @@ async function seed() {
   } else {
     console.log(`Superadmin already exists (${ADMIN_EMAIL}) — skipped.`);
   }
+
+  await ensureDemoUserAndSeedData();
+  console.log("Demo user ensured:");
+  console.log(`  Email   : ${DEMO_EMAIL}`);
+  console.log(`  Username: ${DEMO_USERNAME}`);
+  console.log(`  Password: ${DEMO_PASSWORD}`);
 
   console.log("Seed complete.");
   await pool.end();

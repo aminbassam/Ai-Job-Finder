@@ -33,6 +33,7 @@ CREATE TABLE account_users (
   username citext UNIQUE,
   password_hash text,
   auth_source auth_provider NOT NULL DEFAULT 'local',
+  is_demo boolean NOT NULL DEFAULT false,
   first_name text NOT NULL,
   last_name text NOT NULL,
   location_text text,

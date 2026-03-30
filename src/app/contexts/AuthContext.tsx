@@ -19,6 +19,7 @@ export interface User {
   location?: string;
   emailVerified: boolean;
   isAdmin: boolean;
+  isDemo?: boolean;
 }
 
 interface AuthState {

@@ -22,6 +22,7 @@ import aiRouter          from "./routes/ai";
 import gmailRouter       from "./routes/gmail";
 import masterResumeRouter from "./routes/master-resume";
 import { startScheduler } from "./services/scheduler";
+import { ensureDemoUserAndSeedData } from "./services/demo-user";
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
@@ -172,6 +173,7 @@ async function applyMigrations() {
     { name: "016_gmail_linkedin_ingestion", file: join(ROOT, "db/migrations/016_gmail_linkedin_ingestion.sql") },
     { name: "017_profile_activity_logs", file: join(ROOT, "db/migrations/017_profile_activity_logs.sql") },
     { name: "018_account_usernames", file: join(ROOT, "db/migrations/018_account_usernames.sql") },
+    { name: "019_demo_users", file: join(ROOT, "db/migrations/019_demo_users.sql") },
   ];
   const client = await pool.connect();
   try {
@@ -273,6 +275,7 @@ async function ensureCriticalColumns() {
     `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_template text NOT NULL DEFAULT 'modern'`,
     `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_density text NOT NULL DEFAULT 'balanced'`,
     `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS use_legacy_resume_preferences_for_ai boolean NOT NULL DEFAULT false`,
+    `ALTER TABLE account_users ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT false`,
     `ALTER TABLE documents ADD COLUMN IF NOT EXISTS content_html text`,
     `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS content_html text`,
     `ALTER TABLE master_resume_profiles ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true`,
@@ -594,6 +597,7 @@ applyMigrations()
   .then(() => ensureMasterResumeTables())
   .then(() => ensureGmailTables())
   .then(() => ensureCriticalColumns())
+  .then(() => ensureDemoUserAndSeedData())
   .then(() => {
     validateEnv();
     app.listen(PORT, () => {
