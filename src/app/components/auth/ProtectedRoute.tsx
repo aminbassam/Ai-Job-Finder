@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from "react-router";
-import { useAuth } from "../../contexts/AuthContext";
+import { POST_LOGOUT_REDIRECT_KEY, useAuth } from "../../contexts/AuthContext";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -14,10 +14,15 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { isAuthenticated, user } = useAuth();
   const location = useLocation();
+  const signedOutIntentionally = sessionStorage.getItem(POST_LOGOUT_REDIRECT_KEY) === "1";
 
   if (!isAuthenticated) {
     return (
-      <Navigate to="/auth/login" state={{ from: location.pathname }} replace />
+      <Navigate
+        to="/auth/login"
+        state={signedOutIntentionally ? undefined : { from: location.pathname }}
+        replace
+      />
     );
   }
 
@@ -36,7 +41,10 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 export function GuestRoute({ children }: ProtectedRouteProps) {
   const { isAuthenticated, user } = useAuth();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from ?? "/";
+  const signedOutIntentionally = sessionStorage.getItem(POST_LOGOUT_REDIRECT_KEY) === "1";
+  const from = signedOutIntentionally
+    ? "/"
+    : (location.state as { from?: string } | null)?.from ?? "/";
 
   if (isAuthenticated) {
     // Unverified users go to verification, not the app
@@ -50,10 +58,15 @@ export function GuestRoute({ children }: ProtectedRouteProps) {
 export function AdminRoute({ children }: ProtectedRouteProps) {
   const { isAuthenticated, user } = useAuth();
   const location = useLocation();
+  const signedOutIntentionally = sessionStorage.getItem(POST_LOGOUT_REDIRECT_KEY) === "1";
 
   if (!isAuthenticated) {
     return (
-      <Navigate to="/auth/login" state={{ from: location.pathname }} replace />
+      <Navigate
+        to="/auth/login"
+        state={signedOutIntentionally ? undefined : { from: location.pathname }}
+        replace
+      />
     );
   }
 

@@ -46,6 +46,7 @@ interface AuthContextType extends AuthState {
 }
 
 const SESSION_KEY = "jobflow_auth";
+export const POST_LOGOUT_REDIRECT_KEY = "jobflow_post_logout";
 
 function loadSession(): { user: User | null; token: string | null } {
   try {
@@ -59,6 +60,7 @@ function loadSession(): { user: User | null; token: string | null } {
 
 function saveSession(user: User, token: string) {
   sessionStorage.setItem(SESSION_KEY, JSON.stringify({ user, token }));
+  sessionStorage.removeItem(POST_LOGOUT_REDIRECT_KEY);
 }
 
 function clearSession() {
@@ -127,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     authService.logout(); // fire-and-forget to revoke server session
+    sessionStorage.setItem(POST_LOGOUT_REDIRECT_KEY, "1");
     clearSession();
     dispatch({ type: "LOGOUT" });
   }, []);

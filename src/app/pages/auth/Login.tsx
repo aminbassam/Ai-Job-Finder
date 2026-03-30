@@ -6,7 +6,7 @@ import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Button } from "../../components/ui/button";
-import { useAuth } from "../../contexts/AuthContext";
+import { POST_LOGOUT_REDIRECT_KEY, useAuth } from "../../contexts/AuthContext";
 
 interface LoginFormValues {
   identifier: string;
@@ -17,7 +17,10 @@ export function Login() {
   const { login, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from ?? "/";
+  const signedOutIntentionally = sessionStorage.getItem(POST_LOGOUT_REDIRECT_KEY) === "1";
+  const from = signedOutIntentionally
+    ? "/"
+    : (location.state as { from?: string } | null)?.from ?? "/";
 
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState("");
@@ -33,6 +36,7 @@ export function Login() {
     setServerError("");
     try {
       await login(data.identifier, data.password);
+      sessionStorage.removeItem(POST_LOGOUT_REDIRECT_KEY);
       navigate(from, { replace: true });
     } catch (err) {
       setServerError(
