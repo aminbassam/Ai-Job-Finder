@@ -22,6 +22,7 @@ import { Textarea } from "../../components/ui/textarea";
 import { Switch } from "../../components/ui/switch";
 import { TagInput } from "../../components/ui/tag-input";
 import { JobTitleTagInput } from "../../components/ui/job-title-tag-input";
+import { RichTextEditor } from "../../components/ui/rich-text-editor";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import {
   masterResumeService,
@@ -1100,12 +1101,11 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
                       </div>
                       <div>
                         <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Description</Label>
-                        <Textarea
+                        <RichTextEditor
                           value={bullet.description}
-                          onChange={(event) => updateBullet(experienceIndex, bulletIndex, { description: event.target.value })}
-                          rows={3}
-                          placeholder="Describe what you accomplished, how you did it, and the impact..."
-                          className="border-[#1F2937] bg-[#0B0F14] text-white"
+                          onChange={(html) => updateBullet(experienceIndex, bulletIndex, { description: html })}
+                          placeholder="Describe what you accomplished, how you did it, and the impact…"
+                          minRows={3}
                         />
                       </div>
                       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1184,12 +1184,11 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
                   </div>
                   <div>
                     <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Description</Label>
-                    <Textarea
+                    <RichTextEditor
                       value={section.description}
-                      onChange={(event) => updateCustomSection(sectionIndex, { description: event.target.value })}
-                      rows={4}
+                      onChange={(html) => updateCustomSection(sectionIndex, { description: html })}
                       placeholder="Add details for this section…"
-                      className="border-[#1F2937] bg-[#111827] text-white"
+                      minRows={4}
                     />
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
