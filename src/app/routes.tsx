@@ -16,6 +16,7 @@ import { Signup } from "./pages/auth/Signup";
 import { ForgotPassword } from "./pages/auth/ForgotPassword";
 import { VerifyEmail } from "./pages/auth/VerifyEmail";
 import { AdminUsers } from "./pages/admin/AdminUsers";
+import { AdminUserDetail } from "./pages/admin/AdminUserDetail";
 import { PlatformLogs } from "./pages/admin/PlatformLogs";
 
 export const router = createBrowserRouter([
@@ -82,6 +83,14 @@ export const router = createBrowserRouter([
         element: (
           <AdminRoute>
             <AdminUsers />
+          </AdminRoute>
+        ),
+      },
+      {
+        path: "admin/users/:id",
+        element: (
+          <AdminRoute>
+            <AdminUserDetail />
           </AdminRoute>
         ),
       },

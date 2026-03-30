@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router";
 import {
   Users, Search, Shield, ShieldOff, Trash2, Edit2, ChevronLeft,
   ChevronRight, CheckCircle2, XCircle, Crown, UserCheck, UserX, RefreshCw,
-  KeyRound,
+  KeyRound, Eye,
 } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -148,7 +149,14 @@ function EditModal({ user, onClose, onSaved }: EditModalProps) {
       <div className="bg-[#111827] border border-[#1F2937] rounded-xl w-full max-w-md shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1F2937]">
           <h2 className="text-[16px] font-semibold text-white">Edit User</h2>
-          <button onClick={onClose} className="text-[#9CA3AF] hover:text-white transition-colors text-lg leading-none">✕</button>
+          <button
+            onClick={onClose}
+            className="text-[#9CA3AF] hover:text-white transition-colors text-lg leading-none"
+            title="Close"
+            aria-label="Close"
+          >
+            ✕
+          </button>
         </div>
 
         <div className="p-6 space-y-4">
@@ -310,7 +318,14 @@ function PasswordModal({ user, onClose, onSaved }: PasswordModalProps) {
       <div className="bg-[#111827] border border-[#1F2937] rounded-xl w-full max-w-md shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1F2937]">
           <h2 className="text-[16px] font-semibold text-white">Reset Password</h2>
-          <button onClick={onClose} className="text-[#9CA3AF] hover:text-white transition-colors text-lg leading-none">✕</button>
+          <button
+            onClick={onClose}
+            className="text-[#9CA3AF] hover:text-white transition-colors text-lg leading-none"
+            title="Close"
+            aria-label="Close"
+          >
+            ✕
+          </button>
         </div>
 
         <div className="p-6 space-y-4">
@@ -360,9 +375,128 @@ function PasswordModal({ user, onClose, onSaved }: PasswordModalProps) {
   );
 }
 
+// ── Cleanup Modal ────────────────────────────────────────────────────────────
+
+interface CleanupModalProps {
+  user?: AdminUser | null;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function CleanupModal({ user, onClose, onSaved }: CleanupModalProps) {
+  const [removeUploadedDocuments, setRemoveUploadedDocuments] = useState(true);
+  const [removeGeneratedResumes, setRemoveGeneratedResumes] = useState(true);
+  const [removeGeneratedCoverLetters, setRemoveGeneratedCoverLetters] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleCleanup() {
+    if (!removeUploadedDocuments && !removeGeneratedResumes && !removeGeneratedCoverLetters) {
+      setError("Select at least one cleanup option.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      await api.post("/admin/cleanup/documents", {
+        userId: user?.id,
+        removeUploadedDocuments,
+        removeGeneratedResumes,
+        removeGeneratedCoverLetters,
+      });
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to clean up documents.");
+      setSaving(false);
+    }
+  }
+
+  const scopeLabel = user ? `${user.firstName} ${user.lastName}` : "entire platform";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-xl border border-[#1F2937] bg-[#111827] shadow-2xl">
+        <div className="flex items-center justify-between border-b border-[#1F2937] px-6 py-4">
+          <h2 className="text-[16px] font-semibold text-white">Cleanup Documents</h2>
+          <button
+            onClick={onClose}
+            className="text-lg leading-none text-[#9CA3AF] transition-colors hover:text-white"
+            title="Close"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-4 p-6">
+          <div className="rounded-lg border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-3 py-2.5 text-[12px] text-[#F59E0B]">
+            This removes stored document records for <span className="font-medium text-white">{scopeLabel}</span>. User accounts, jobs, and applications stay intact.
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-[#EF4444]/30 bg-[#EF4444]/10 px-3 py-2 text-[13px] text-[#EF4444]">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {[
+              {
+                checked: removeUploadedDocuments,
+                onChange: setRemoveUploadedDocuments,
+                title: "Uploaded client documents",
+                description: "Remove documents saved with origin = uploaded.",
+              },
+              {
+                checked: removeGeneratedResumes,
+                onChange: setRemoveGeneratedResumes,
+                title: "Generated resumes",
+                description: "Remove AI-generated resume documents and their versions.",
+              },
+              {
+                checked: removeGeneratedCoverLetters,
+                onChange: setRemoveGeneratedCoverLetters,
+                title: "Generated cover letters",
+                description: "Remove AI-generated cover letters and their versions.",
+              },
+            ].map((option) => (
+              <label
+                key={option.title}
+                className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#1F2937] bg-[#0B0F14] px-3 py-3"
+              >
+                <input
+                  type="checkbox"
+                  checked={option.checked}
+                  onChange={(e) => option.onChange(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-[#374151] bg-[#111827] text-[#4F8CFF] focus:ring-[#4F8CFF]"
+                />
+                <div>
+                  <p className="text-[13px] font-medium text-white">{option.title}</p>
+                  <p className="mt-1 text-[11px] text-[#9CA3AF]">{option.description}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-3 border-t border-[#1F2937] px-6 py-4">
+          <Button variant="outline" onClick={onClose} className="h-9 flex-1 border-[#1F2937] bg-transparent text-[#9CA3AF] hover:text-white">
+            Cancel
+          </Button>
+          <Button onClick={handleCleanup} disabled={saving} className="h-9 flex-1 bg-[#F59E0B] text-black hover:bg-[#F59E0B]/90">
+            {saving ? <><span className="mr-2 h-3.5 w-3.5 rounded-full border-2 border-black/30 border-t-black animate-spin" />Cleaning…</> : "Run Cleanup"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export function AdminUsers() {
+  const navigate = useNavigate();
   const [users, setUsers]         = useState<AdminUser[]>([]);
   const [stats, setStats]         = useState<Stats | null>(null);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, pages: 1 });
@@ -374,6 +508,8 @@ export function AdminUsers() {
   const [editUser, setEditUser]   = useState<AdminUser | null>(null);
   const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<AdminUser | null>(null);
+  const [cleanupUser, setCleanupUser] = useState<AdminUser | null>(null);
+  const [showGlobalCleanup, setShowGlobalCleanup] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const loadStats = useCallback(async () => {
@@ -433,6 +569,12 @@ export function AdminUsers() {
     loadUsers(pagination.page);
   }
 
+  function handleCleanupSaved() {
+    setCleanupUser(null);
+    setShowGlobalCleanup(false);
+    loadUsers(pagination.page);
+  }
+
   return (
     <div className="p-8">
       {/* Header */}
@@ -447,6 +589,13 @@ export function AdminUsers() {
         <Button onClick={() => { loadUsers(pagination.page); loadStats(); }}
           variant="outline" className="border-[#1F2937] text-[#9CA3AF] hover:text-white bg-transparent gap-2">
           <RefreshCw className="h-4 w-4" /> Refresh
+        </Button>
+        <Button
+          onClick={() => setShowGlobalCleanup(true)}
+          variant="outline"
+          className="ml-3 border-[#F59E0B]/30 text-[#F59E0B] hover:bg-[#F59E0B]/10 bg-transparent gap-2"
+        >
+          <Trash2 className="h-4 w-4" /> Platform Cleanup
         </Button>
       </div>
 
@@ -524,13 +673,17 @@ export function AdminUsers() {
                   <td colSpan={7} className="text-center py-12 text-[#9CA3AF] text-[14px]">No users found.</td>
                 </tr>
               ) : users.map((user) => (
-                <tr key={user.id} className="border-b border-[#1F2937]/50 hover:bg-[#1F2937]/30 transition-colors">
+                <tr
+                  key={user.id}
+                  onClick={() => navigate(`/admin/users/${user.id}`)}
+                  className="cursor-pointer border-b border-[#1F2937]/50 transition-colors hover:bg-[#1F2937]/30"
+                >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <Avatar name={`${user.firstName} ${user.lastName}`} />
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <p className="text-[13px] font-medium text-white">
+                          <p className="text-[13px] font-medium text-white hover:text-[#4F8CFF]">
                             {user.firstName} {user.lastName}
                           </p>
                           {user.isAdmin && (
@@ -562,17 +715,34 @@ export function AdminUsers() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/admin/users/${user.id}`);
+                        }}
+                        className="rounded-lg p-1.5 text-[#9CA3AF] transition-colors hover:bg-[#4F8CFF]/10 hover:text-[#4F8CFF]"
+                        title="View details"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
                       {/* Edit */}
-                      <button onClick={() => setEditUser(user)}
+                      <button onClick={(e) => { e.stopPropagation(); setEditUser(user); }}
                         className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#4F8CFF] hover:bg-[#4F8CFF]/10 transition-colors" title="Edit">
                         <Edit2 className="h-4 w-4" />
                       </button>
-                      <button onClick={() => setPasswordUser(user)}
+                      <button onClick={(e) => { e.stopPropagation(); setPasswordUser(user); }}
                         className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#F59E0B] hover:bg-[#F59E0B]/10 transition-colors" title="Reset password">
                         <KeyRound className="h-4 w-4" />
                       </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setCleanupUser(user); }}
+                        className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#F59E0B] hover:bg-[#F59E0B]/10 transition-colors"
+                        title="Clean user documents"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                       {/* Toggle active */}
-                      <button onClick={() => toggleStatus(user)} disabled={togglingId === user.id}
+                      <button onClick={(e) => { e.stopPropagation(); toggleStatus(user); }} disabled={togglingId === user.id}
                         className={`p-1.5 rounded-lg transition-colors ${user.isActive
                           ? "text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#EF4444]/10"
                           : "text-[#9CA3AF] hover:text-[#22C55E] hover:bg-[#22C55E]/10"}`}
@@ -583,7 +753,10 @@ export function AdminUsers() {
                       </button>
                       {/* Admin toggle */}
                       <button
-                        onClick={() => api.patch(`/admin/users/${user.id}`, { isAdmin: !user.isAdmin }).then(() => loadUsers(pagination.page))}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          api.patch(`/admin/users/${user.id}`, { isAdmin: !user.isAdmin }).then(() => loadUsers(pagination.page));
+                        }}
                         className={`p-1.5 rounded-lg transition-colors ${user.isAdmin
                           ? "text-[#A78BFA] hover:bg-[#A78BFA]/10"
                           : "text-[#9CA3AF] hover:text-[#A78BFA] hover:bg-[#A78BFA]/10"}`}
@@ -591,7 +764,7 @@ export function AdminUsers() {
                         {user.isAdmin ? <Shield className="h-4 w-4" /> : <ShieldOff className="h-4 w-4" />}
                       </button>
                       {/* Delete */}
-                      <button onClick={() => setDeleteUser(user)}
+                      <button onClick={(e) => { e.stopPropagation(); setDeleteUser(user); }}
                         className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors" title="Delete">
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -629,6 +802,8 @@ export function AdminUsers() {
       {/* Modals */}
       {editUser   && <EditModal   user={editUser}   onClose={() => setEditUser(null)}   onSaved={handleSaved} />}
       {passwordUser && <PasswordModal user={passwordUser} onClose={() => setPasswordUser(null)} onSaved={handlePasswordSaved} />}
+      {showGlobalCleanup && <CleanupModal onClose={() => setShowGlobalCleanup(false)} onSaved={handleCleanupSaved} />}
+      {cleanupUser && <CleanupModal user={cleanupUser} onClose={() => setCleanupUser(null)} onSaved={handleCleanupSaved} />}
       {deleteUser && <DeleteModal user={deleteUser} onClose={() => setDeleteUser(null)} onDeleted={handleDeleted} />}
     </div>
   );
