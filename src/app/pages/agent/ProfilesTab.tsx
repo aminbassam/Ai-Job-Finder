@@ -15,6 +15,7 @@ import { Slider } from "../../components/ui/slider";
 import { TagInput } from "../../components/ui/tag-input";
 import { JobTitleTagInput } from "../../components/ui/job-title-tag-input";
 import { LocationTagInput } from "../../components/ui/location-tag-input";
+import { useConfirmationDialog } from "../../components/ui/confirmation-dialog";
 import {
   SearchProfile, ProfileInput, ConnectorConfig, ActivityLog,
   getProfiles, getConnectors, createProfile, updateProfile, deleteProfile, runProfile,
@@ -663,12 +664,16 @@ function ProfileCard({
           </Button>
           <Button
             variant="ghost" size="sm" onClick={onEdit}
+            title="Edit profile"
+            aria-label="Edit profile"
             className="h-8 w-8 p-0 text-[#6B7280] hover:text-white hover:bg-[#1F2937]"
           >
             <Pencil className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost" size="sm" onClick={onDelete}
+            title="Delete profile"
+            aria-label="Delete profile"
             className="h-8 w-8 p-0 text-[#6B7280] hover:text-[#EF4444] hover:bg-[#EF4444]/10"
           >
             <Trash2 className="h-4 w-4" />
@@ -817,6 +822,7 @@ function ProfileCard({
 
 /* ──────────────── Main Tab ─────────────────────────────────── */
 export function ProfilesTab() {
+  const { confirm, confirmationDialog } = useConfirmationDialog();
   const [profiles, setProfiles] = useState<SearchProfile[]>([]);
   const [connectors, setConnectors] = useState<ConnectorConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -871,11 +877,21 @@ export function ProfilesTab() {
     setEditingId(null);
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(profile: SearchProfile) {
+    const confirmed = await confirm({
+      title: "Delete search profile?",
+      description: `This will permanently delete "${profile.name}" and stop any future automated runs for it.`,
+      confirmLabel: "Delete Profile",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
+
+    if (!confirmed) return;
+
     setActionError("");
     try {
-      await deleteProfile(id);
-      setProfiles((prev) => prev.filter((p) => p.id !== id));
+      await deleteProfile(profile.id);
+      setProfiles((prev) => prev.filter((p) => p.id !== profile.id));
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to delete profile.");
     }
@@ -1045,7 +1061,7 @@ export function ProfilesTab() {
                 key={p.id}
                 profile={p}
                 onEdit={() => setEditingId(p.id)}
-                onDelete={() => handleDelete(p.id)}
+                onDelete={() => handleDelete(p)}
                 onToggle={() => handleToggle(p)}
                 onRunComplete={() => handleRunComplete(p.id)}
               />
@@ -1053,6 +1069,7 @@ export function ProfilesTab() {
           )}
         </div>
       )}
+      {confirmationDialog}
     </div>
   );
 }
