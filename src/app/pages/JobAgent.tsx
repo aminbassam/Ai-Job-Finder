@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { Zap, Target, Plug, Download, History, Play } from "lucide-react";
+import { Zap, Target, Plug, Download, History, Play, CalendarClock } from "lucide-react";
 import { ProfilesTab } from "./agent/ProfilesTab";
 import { SourcesTab } from "./agent/SourcesTab";
 import { ImportTab } from "./agent/ImportTab";
 import { RunsTab } from "./agent/RunsTab";
+import { SchedulesTab } from "./agent/SchedulesTab";
 
 /* ─── Tab definition ──────────────────────────────────────────────────── */
 const TABS = [
   { id: "profiles", label: "Search Profiles", icon: Target },
+  { id: "schedules", label: "Schedules",      icon: CalendarClock },
   { id: "sources",  label: "Sources",         icon: Plug   },
   { id: "import",   label: "Manual Import",    icon: Download },
   { id: "runs",     label: "Run History",      icon: History },
@@ -83,6 +85,7 @@ export function JobAgent() {
 
       {/* Tab content */}
       {tab === "profiles" && <ProfilesTab />}
+      {tab === "schedules" && <SchedulesTab />}
       {tab === "sources"  && <SourcesTab />}
       {tab === "import"   && <ImportTab />}
       {tab === "runs"     && <RunsTab />}
