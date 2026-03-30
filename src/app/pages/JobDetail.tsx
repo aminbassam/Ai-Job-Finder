@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import {
   ArrowLeft,
   MapPin,
@@ -12,13 +12,22 @@ import {
   Loader2,
   AlertCircle,
   Briefcase,
+  Trash2,
+  Building2,
+  Hash,
+  Link2,
+  DollarSign,
+  House,
+  Clock3,
 } from "lucide-react";
 import { Card } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Progress } from "../components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import {
+  deleteMatch,
   getResult,
+  generateCoverLetter,
   generateResumeWithSelection,
   setMatchStatus,
   type JobMatch,
@@ -27,6 +36,7 @@ import { applicationsService } from "../services/applications.service";
 import { DocumentPreviewModal, type DocumentPreviewRef } from "../components/documents/DocumentPreviewModal";
 import { buildJobInsights } from "../utils/job-insights";
 import { ResumeGenerationDialog } from "../components/resume/ResumeGenerationDialog";
+import { useConfirmationDialog } from "../components/ui/confirmation-dialog";
 
 function formatDate(value?: string) {
   if (!value) return null;
@@ -69,6 +79,13 @@ function scoreColor(score?: number): string {
   return "#EF4444";
 }
 
+function labelize(value?: string | null) {
+  if (!value) return null;
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 type DetailTab = "overview" | "information" | "analysis";
 
 function tabFromHash(hash: string): DetailTab {
@@ -78,13 +95,17 @@ function tabFromHash(hash: string): DetailTab {
 }
 
 export function JobDetail() {
+  const { confirm, confirmationDialog } = useConfirmationDialog();
   const { id } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const [job, setJob] = useState<JobMatch | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [viewingResume, setViewingResume] = useState<DocumentPreviewRef | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [viewingDocument, setViewingDocument] = useState<DocumentPreviewRef | null>(null);
+  const [generatingResume, setGeneratingResume] = useState(false);
+  const [generatingCoverLetter, setGeneratingCoverLetter] = useState(false);
+  const [deletingJob, setDeletingJob] = useState(false);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>(tabFromHash(location.hash));
 
@@ -132,6 +153,74 @@ export function JobDetail() {
     scoreBreakdown: breakdown,
   });
   const hasAnalysis = Boolean(job.aiSummary || breakdown || insights.bestFitImprovements.length > 0 || insights.keywordFocus.length > 0);
+  const salaryText =
+    (job.salaryMin || job.salaryMax)
+      ? [
+          job.salaryMin ? `$${Math.round(job.salaryMin / 1000)}k` : null,
+          job.salaryMax ? `$${Math.round(job.salaryMax / 1000)}k` : null,
+        ].filter(Boolean).join(" – ")
+      : null;
+  const employmentSummary = [
+    labelize(job.jobType) ?? null,
+    job.isContract != null ? (job.isContract ? "Contract" : "Not contract") : null,
+  ].filter(Boolean).join(" • ");
+  const paymentSummary = [
+    job.compensationText ?? salaryText ?? null,
+    job.paymentType ? labelize(job.paymentType) : null,
+  ].filter(Boolean).join(" • ");
+  const companyLocationSummary = job.companyAddress ?? job.workLocation ?? job.location ?? null;
+  const quickFacts = [
+    {
+      key: "source-id",
+      label: "Source ID",
+      value: sourceJobId,
+      icon: Hash,
+      mono: true,
+    },
+    {
+      key: "origin-posting",
+      label: "Origin Posting",
+      value: job.sourceUrl ? "Open original posting" : "Original link not available",
+      href: job.sourceUrl,
+      icon: Link2,
+    },
+    {
+      key: "work-setup",
+      label: "Work Setup",
+      value: labelize(job.workArrangement) ?? (job.remote ? "Remote" : "Not specified"),
+      icon: House,
+    },
+    {
+      key: "employment",
+      label: "Employment",
+      value: employmentSummary || "Not specified",
+      icon: Briefcase,
+    },
+    {
+      key: "payment",
+      label: "Payment",
+      value: paymentSummary || "Not specified",
+      icon: DollarSign,
+    },
+    {
+      key: "company-location",
+      label: "Company Location",
+      value: companyLocationSummary ?? "Not specified",
+      icon: Building2,
+    },
+    {
+      key: "added",
+      label: "Added To Job Board",
+      value: formatDateTime(job.createdAt) ?? "Unknown",
+      icon: Clock3,
+    },
+    {
+      key: "posted",
+      label: "Posted",
+      value: formatDateTime(job.postedAt) ?? formatDate(job.postedAt) ?? "Not specified",
+      icon: Calendar,
+    },
+  ];
 
   return (
     <div className="p-8">
@@ -207,17 +296,56 @@ export function JobDetail() {
               <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#6B7280]">Salary Range</p>
                 <p className="mt-1 text-[13px] text-[#D1D5DB]">
-                  {(job.salaryMin || job.salaryMax)
-                    ? [
-                        job.salaryMin ? `$${Math.round(job.salaryMin / 1000)}k` : null,
-                        job.salaryMax ? `$${Math.round(job.salaryMax / 1000)}k` : null,
-                      ].filter(Boolean).join(" – ")
-                    : "Not listed"}
+                  {salaryText ?? "Not listed"}
                 </p>
               </div>
               <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#6B7280]">Profile</p>
                 <p className="mt-1 text-[13px] text-[#D1D5DB]">{job.profileName ?? "Imported manually"}</p>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Job Details At A Glance</p>
+                  <p className="mt-1 text-[13px] text-[#9CA3AF]">
+                    Source, posting, work setup, compensation, and location details captured for this role.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {quickFacts.map((fact) => {
+                  const Icon = fact.icon;
+                  return (
+                    <div key={fact.key} className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-3">
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-lg border border-[#1F2937] bg-[#111827] p-2 text-[#93C5FD]">
+                          <Icon className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-[#6B7280]">{fact.label}</p>
+                          {fact.href ? (
+                            <a
+                              href={fact.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-1 inline-flex items-center gap-1.5 break-all text-[13px] text-[#4F8CFF] transition-colors hover:text-white"
+                            >
+                              <span className={fact.mono ? "font-mono" : undefined}>{fact.value}</span>
+                              <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                            </a>
+                          ) : (
+                            <p className={`mt-1 break-words text-[13px] text-[#D1D5DB] ${fact.mono ? "font-mono" : ""}`}>
+                              {fact.value}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </Card>
@@ -359,6 +487,28 @@ export function JobDetail() {
                     ) : (
                       <p className="text-[13px] text-[#9CA3AF]">Original link not available.</p>
                     )}
+                  </div>
+                  <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-4">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Work Setup</p>
+                    <p className="text-[13px] text-[#D1D5DB]">{labelize(job.workArrangement) ?? (job.remote ? "Remote" : "Not specified")}</p>
+                  </div>
+                  <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-4">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Employment</p>
+                    <p className="text-[13px] text-[#D1D5DB]">
+                      {labelize(job.jobType) ?? "Not specified"}
+                      {job.isContract != null ? ` • ${job.isContract ? "Contract" : "Not contract"}` : ""}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-4">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Payment</p>
+                    <p className="text-[13px] text-[#D1D5DB]">
+                      {job.compensationText ?? salaryText ?? "Not specified"}
+                      {job.paymentType ? ` • ${labelize(job.paymentType)}` : ""}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-4">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Company Address</p>
+                    <p className="text-[13px] text-[#D1D5DB]">{job.companyAddress ?? job.workLocation ?? job.location ?? "Not specified"}</p>
                   </div>
                 </div>
 
@@ -523,7 +673,7 @@ export function JobDetail() {
                 <Button
                   className="w-full bg-[#22C55E] text-white hover:bg-[#22C55E]/90"
                   onClick={() =>
-                    setViewingResume({
+                    setViewingDocument({
                       id: job.linkedResume!.id,
                       title: job.linkedResume!.title,
                       jobTitle: job.title,
@@ -537,11 +687,51 @@ export function JobDetail() {
               ) : (
                 <Button
                   className="w-full bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90"
-                  disabled={generating}
+                  disabled={generatingResume}
                   onClick={() => setShowResumeDialog(true)}
                 >
-                  {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
-                  {generating ? "Generating…" : "Generate Resume"}
+                  {generatingResume ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                  {generatingResume ? "Generating…" : "Generate Resume"}
+                </Button>
+              )}
+
+              {job.linkedCoverLetter ? (
+                <Button
+                  className="w-full bg-[#1D4ED8] text-white hover:bg-[#1D4ED8]/90"
+                  onClick={() =>
+                    setViewingDocument({
+                      id: job.linkedCoverLetter!.id,
+                      title: job.linkedCoverLetter!.title,
+                      jobTitle: job.title,
+                      company: job.company,
+                    })
+                  }
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  View Cover Letter
+                </Button>
+              ) : (
+                <Button
+                  className="w-full border-[#374151] bg-[#1F2937] text-white hover:bg-[#374151]"
+                  variant="outline"
+                  disabled={generatingCoverLetter}
+                  onClick={async () => {
+                    setGeneratingCoverLetter(true);
+                    setError(null);
+                    try {
+                      const result = await generateCoverLetter(job.id);
+                      if (result.coverLetter) {
+                        setJob((prev) => prev ? { ...prev, linkedCoverLetter: result.coverLetter } : prev);
+                      }
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Failed to generate cover letter.");
+                    } finally {
+                      setGeneratingCoverLetter(false);
+                    }
+                  }}
+                >
+                  {generatingCoverLetter ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                  {generatingCoverLetter ? "Generating…" : "Generate Cover Letter"}
                 </Button>
               )}
 
@@ -576,6 +766,35 @@ export function JobDetail() {
               >
                 <Check className="mr-2 h-4 w-4" />
                 Mark Applied
+              </Button>
+
+              <Button
+                className="w-full border-[#7F1D1D] bg-[#7F1D1D]/10 text-[#FCA5A5] hover:bg-[#7F1D1D]/20 hover:text-[#FECACA]"
+                variant="outline"
+                disabled={deletingJob}
+                onClick={async () => {
+                  const confirmed = await confirm({
+                    title: "Delete this job?",
+                    description: `This will remove "${job.title}" from your Job Board.`,
+                    confirmLabel: "Delete Job",
+                    cancelLabel: "Cancel",
+                    variant: "destructive",
+                  });
+                  if (!confirmed) return;
+
+                  setDeletingJob(true);
+                  setError(null);
+                  try {
+                    await deleteMatch(job.id);
+                    navigate("/jobs", { replace: true });
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Failed to delete job.");
+                    setDeletingJob(false);
+                  }
+                }}
+              >
+                {deletingJob ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                {deletingJob ? "Deleting…" : "Delete Job"}
               </Button>
 
               {job.sourceUrl && (
@@ -614,19 +833,20 @@ export function JobDetail() {
         </div>
       </div>
 
-      {viewingResume && (
-        <DocumentPreviewModal doc={viewingResume} onClose={() => setViewingResume(null)} />
+      {viewingDocument && (
+        <DocumentPreviewModal doc={viewingDocument} onClose={() => setViewingDocument(null)} />
       )}
+      {confirmationDialog}
 
       <ResumeGenerationDialog
         open={showResumeDialog}
         onOpenChange={setShowResumeDialog}
         jobTitle={job.title}
         company={job.company}
-        generating={generating}
+        generating={generatingResume}
         error={error}
         onGenerate={async (selection) => {
-          setGenerating(true);
+          setGeneratingResume(true);
           setError(null);
           try {
             const result = await generateResumeWithSelection(job.id, selection);
@@ -637,7 +857,7 @@ export function JobDetail() {
           } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to generate resume.");
           } finally {
-            setGenerating(false);
+            setGeneratingResume(false);
           }
         }}
       />

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import {
   MapPin,
@@ -25,15 +25,18 @@ import {
   getResults,
   setMatchStatus,
   generateResumeWithSelection,
+  generateCoverLetter,
   deleteMatch,
   bulkDeleteMatches,
   type JobMatch,
 } from "../services/agent.service";
+import { masterResumeService, type MatchedJobSuggestion } from "../services/masterResume.service";
 import { applicationsService } from "../services/applications.service";
 import { DocumentPreviewModal, type DocumentPreviewRef } from "../components/documents/DocumentPreviewModal";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { buildJobInsights } from "../utils/job-insights";
 import { ResumeGenerationDialog } from "../components/resume/ResumeGenerationDialog";
+import { useConfirmationDialog } from "../components/ui/confirmation-dialog";
 
 const CONNECTOR_NAMES: Record<string, string> = {
   remotive: "Remotive",
@@ -170,6 +173,9 @@ function displayJobId(externalId?: string) {
 
 type ViewMode = "grid" | "list";
 type TabId = "all" | "strong" | "maybe" | "new" | "saved" | "applied";
+type ScoreFilter = "all" | "75" | "60" | "40";
+type AddedFilter = "all" | "1h" | "6h" | "12h" | "24h" | "48h" | "72h" | "7d" | "14d" | "30d" | "90d";
+type SortMode = "match" | "recent" | "oldest" | "score-high" | "score-low";
 
 function shouldLinkAiSettings(message?: string | null) {
   if (!message) return false;
@@ -207,6 +213,7 @@ interface CardState {
   moreInfoExpanded: boolean;
   aiExpanded: boolean;
   generating: boolean;
+  generatingCoverLetter: boolean;
   generated: boolean;
   generateError: string | null;
   deleting: boolean;
@@ -219,6 +226,7 @@ function JobBoardItem({
   onDelete,
   onApply,
   onResumeLinked,
+  onCoverLetterLinked,
   onOpenResume,
 }: {
   job: JobMatch;
@@ -226,14 +234,17 @@ function JobBoardItem({
   onDelete: (id: string) => Promise<void>;
   onApply: (id: string) => Promise<void>;
   onResumeLinked: (id: string, resume: NonNullable<JobMatch["linkedResume"]>) => void;
+  onCoverLetterLinked: (id: string, coverLetter: NonNullable<JobMatch["linkedCoverLetter"]>) => void;
   onOpenResume: (doc: DocumentPreviewRef) => void;
 }) {
   const navigate = useNavigate();
+  const { confirm, confirmationDialog } = useConfirmationDialog();
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [state, setState] = useState<CardState>({
     moreInfoExpanded: false,
     aiExpanded: false,
     generating: false,
+    generatingCoverLetter: false,
     generated: job.resumeGenerated ?? false,
     generateError: null,
     deleting: false,
@@ -288,12 +299,14 @@ function JobBoardItem({
     }
   };
 
-  const handleDismiss = () => {
-    onStatusChange(job.id, "dismissed");
-  };
-
   const handleDelete = async () => {
-    const confirmed = window.confirm(`Delete "${job.title}" from your Job Board?`);
+    const confirmed = await confirm({
+      title: "Delete this job?",
+      description: `This will remove "${job.title}" from your Job Board.`,
+      confirmLabel: "Delete Job",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
     if (!confirmed) return;
 
     setState((s) => ({ ...s, deleting: true, deleteError: null }));
@@ -327,6 +340,23 @@ function JobBoardItem({
         generating: false,
         generateError: err instanceof Error ? err.message : "Failed to generate resume.",
       }));
+    }
+  };
+
+  const handleGenerateCoverLetter = async () => {
+    setState((s) => ({ ...s, generatingCoverLetter: true, generateError: null }));
+    try {
+      const result = await generateCoverLetter(job.id);
+      if (result.coverLetter) {
+        onCoverLetterLinked(job.id, result.coverLetter);
+      }
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        generateError: err instanceof Error ? err.message : "Failed to generate cover letter.",
+      }));
+    } finally {
+      setState((s) => ({ ...s, generatingCoverLetter: false }));
     }
   };
 
@@ -373,6 +403,47 @@ function JobBoardItem({
     </div>
   );
 
+  const coverLetterBlock = (
+    <div className="rounded-lg border border-[#1D4ED8]/20 bg-[#0B0F14] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[#93C5FD]">
+            <Sparkles className="h-3.5 w-3.5" />
+            Cover Letter
+          </p>
+          {job.linkedCoverLetter ? (
+            <>
+              <p className="truncate text-[13px] font-medium text-white">{job.linkedCoverLetter.title}</p>
+              <p className="mt-1 text-[11px] text-[#9CA3AF]">
+                Generated for this job{job.linkedCoverLetter.lastModified ? ` • Updated ${formatShortDate(job.linkedCoverLetter.lastModified)}` : ""}
+              </p>
+            </>
+          ) : (
+            <p className="text-[12px] text-[#9CA3AF]">
+              No cover letter attached yet. Generate one directly from this job card when you are ready.
+            </p>
+          )}
+        </div>
+
+        {job.linkedCoverLetter ? (
+          <button
+            onClick={() =>
+              onOpenResume({
+                id: job.linkedCoverLetter!.id,
+                title: job.linkedCoverLetter!.title,
+                jobTitle: job.title,
+                company: job.company,
+              })
+            }
+            className="rounded-lg border border-[#374151] bg-[#1F2937] px-3 py-1.5 text-[12px] font-medium text-white transition-all hover:bg-[#374151]"
+          >
+            View
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+
   const actions = (
     <div className="flex flex-wrap items-center gap-2">
       <button
@@ -398,15 +469,6 @@ function JobBoardItem({
       >
         <Check className="h-3.5 w-3.5" />
         {job.status === "applied" ? "Applied" : "Mark Applied"}
-      </button>
-
-      <button
-        onClick={handleDismiss}
-        disabled={dismissed}
-        className="flex items-center gap-1.5 rounded-lg border border-[#374151] bg-[#1F2937] px-3 py-1.5 text-[12px] font-medium text-[#9CA3AF] transition-all hover:border-[#EF4444]/30 hover:text-[#EF4444]"
-      >
-        <X className="h-3.5 w-3.5" />
-        Dismiss
       </button>
 
       <button
@@ -451,6 +513,32 @@ function JobBoardItem({
         >
           {state.generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
           {state.generating ? "Generating…" : "Generate Resume"}
+        </button>
+      )}
+
+      {job.linkedCoverLetter ? (
+        <button
+          onClick={() =>
+            onOpenResume({
+              id: job.linkedCoverLetter!.id,
+              title: job.linkedCoverLetter!.title,
+              jobTitle: job.title,
+              company: job.company,
+            })
+          }
+          className="flex items-center gap-1.5 rounded-lg border border-[#1D4ED8]/30 bg-[#1D4ED8]/10 px-3 py-1.5 text-[12px] font-medium text-[#93C5FD] transition-all hover:bg-[#1D4ED8]/20"
+        >
+          <Download className="h-3.5 w-3.5" />
+          View Cover Letter
+        </button>
+      ) : (
+        <button
+          onClick={() => void handleGenerateCoverLetter()}
+          disabled={state.generatingCoverLetter}
+          className="flex items-center gap-1.5 rounded-lg border border-[#1D4ED8]/30 bg-[#1D4ED8]/10 px-3 py-1.5 text-[12px] font-medium text-[#93C5FD] transition-all hover:bg-[#1D4ED8]/20 disabled:opacity-60"
+        >
+          {state.generatingCoverLetter ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {state.generatingCoverLetter ? "Generating…" : "Generate Cover Letter"}
         </button>
       )}
     </div>
@@ -758,7 +846,10 @@ function JobBoardItem({
         </p>
       )}
 
-      {resumeBlock}
+      <div className="space-y-3">
+        {resumeBlock}
+        {coverLetterBlock}
+      </div>
 
       <div className="mt-4 border-t border-[#1F2937] pt-4">
         {actions}
@@ -803,6 +894,7 @@ function JobBoardItem({
       error={state.generateError}
       onGenerate={handleGenerateResume}
     />
+    {confirmationDialog}
     </>
   );
 }
@@ -815,6 +907,7 @@ function JobBoardTableRow({
   onDelete,
   onApply,
   onResumeLinked,
+  onCoverLetterLinked,
   onOpenResume,
 }: {
   job: JobMatch;
@@ -824,14 +917,17 @@ function JobBoardTableRow({
   onDelete: (id: string) => Promise<void>;
   onApply: (id: string) => Promise<void>;
   onResumeLinked: (id: string, resume: NonNullable<JobMatch["linkedResume"]>) => void;
+  onCoverLetterLinked: (id: string, coverLetter: NonNullable<JobMatch["linkedCoverLetter"]>) => void;
   onOpenResume: (doc: DocumentPreviewRef) => void;
 }) {
   const navigate = useNavigate();
+  const { confirm, confirmationDialog } = useConfirmationDialog();
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [state, setState] = useState<CardState>({
     moreInfoExpanded: false,
     aiExpanded: false,
     generating: false,
+    generatingCoverLetter: false,
     generated: job.resumeGenerated ?? false,
     generateError: null,
     deleting: false,
@@ -891,12 +987,14 @@ function JobBoardTableRow({
     }
   };
 
-  const handleDismiss = () => {
-    onStatusChange(job.id, "dismissed");
-  };
-
   const handleDelete = async () => {
-    const confirmed = window.confirm(`Delete "${job.title}" from your Job Board?`);
+    const confirmed = await confirm({
+      title: "Delete this job?",
+      description: `This will remove "${job.title}" from your Job Board.`,
+      confirmLabel: "Delete Job",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
     if (!confirmed) return;
 
     setState((s) => ({ ...s, deleting: true, deleteError: null }));
@@ -930,6 +1028,23 @@ function JobBoardTableRow({
         generating: false,
         generateError: err instanceof Error ? err.message : "Failed to generate resume.",
       }));
+    }
+  };
+
+  const handleGenerateCoverLetter = async () => {
+    setState((s) => ({ ...s, generatingCoverLetter: true, generateError: null }));
+    try {
+      const result = await generateCoverLetter(job.id);
+      if (result.coverLetter) {
+        onCoverLetterLinked(job.id, result.coverLetter);
+      }
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        generateError: err instanceof Error ? err.message : "Failed to generate cover letter.",
+      }));
+    } finally {
+      setState((s) => ({ ...s, generatingCoverLetter: false }));
     }
   };
 
@@ -999,15 +1114,6 @@ function JobBoardTableRow({
       >
         <Check className="h-3.5 w-3.5" />
         {job.status === "applied" ? "Applied" : "Mark Applied"}
-      </button>
-
-      <button
-        onClick={handleDismiss}
-        disabled={dismissed}
-        className="flex items-center gap-1.5 rounded-lg border border-[#374151] bg-[#1F2937] px-3 py-1.5 text-[12px] font-medium text-[#9CA3AF] transition-all hover:border-[#EF4444]/30 hover:text-[#EF4444]"
-      >
-        <X className="h-3.5 w-3.5" />
-        Dismiss
       </button>
 
       <button
@@ -1353,20 +1459,72 @@ function JobBoardTableRow({
                   })
                 }
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[#22C55E]/30 bg-[#22C55E]/10 px-2.5 py-1.5 text-[11px] font-medium text-[#22C55E] transition-all hover:bg-[#22C55E]/20"
-              >
-                <Download className="h-3.5 w-3.5" />
-                View Resume
-              </button>
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  View Resume
+                </button>
+              {job.linkedCoverLetter ? (
+                <button
+                  onClick={() =>
+                    onOpenResume({
+                      id: job.linkedCoverLetter!.id,
+                      title: job.linkedCoverLetter!.title,
+                      jobTitle: job.title,
+                      company: job.company,
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#1D4ED8]/30 bg-[#1D4ED8]/10 px-2.5 py-1.5 text-[11px] font-medium text-[#93C5FD] transition-all hover:bg-[#1D4ED8]/20"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  View Cover Letter
+                </button>
+              ) : (
+                <button
+                  onClick={() => void handleGenerateCoverLetter()}
+                  disabled={state.generatingCoverLetter}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#1D4ED8]/30 bg-[#1D4ED8]/10 px-2.5 py-1.5 text-[11px] font-medium text-[#93C5FD] transition-all hover:bg-[#1D4ED8]/20 disabled:opacity-60"
+                >
+                  {state.generatingCoverLetter ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {state.generatingCoverLetter ? "Generating…" : "Cover Letter"}
+                </button>
+              )}
             </div>
           ) : (
-            <button
-              onClick={() => setShowResumeDialog(true)}
-              disabled={state.generating}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#4F8CFF]/30 bg-[#4F8CFF]/10 px-2.5 py-1.5 text-[11px] font-medium text-[#4F8CFF] transition-all hover:bg-[#4F8CFF]/20 disabled:opacity-60"
-            >
-              {state.generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-              {state.generating ? "Generating…" : "Generate"}
-            </button>
+            <div className="space-y-2">
+              <button
+                onClick={() => setShowResumeDialog(true)}
+                disabled={state.generating}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#4F8CFF]/30 bg-[#4F8CFF]/10 px-2.5 py-1.5 text-[11px] font-medium text-[#4F8CFF] transition-all hover:bg-[#4F8CFF]/20 disabled:opacity-60"
+              >
+                {state.generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                {state.generating ? "Generating…" : "Resume"}
+              </button>
+              {job.linkedCoverLetter ? (
+                <button
+                  onClick={() =>
+                    onOpenResume({
+                      id: job.linkedCoverLetter!.id,
+                      title: job.linkedCoverLetter!.title,
+                      jobTitle: job.title,
+                      company: job.company,
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#1D4ED8]/30 bg-[#1D4ED8]/10 px-2.5 py-1.5 text-[11px] font-medium text-[#93C5FD] transition-all hover:bg-[#1D4ED8]/20"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Cover Letter
+                </button>
+              ) : (
+                <button
+                  onClick={() => void handleGenerateCoverLetter()}
+                  disabled={state.generatingCoverLetter}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#1D4ED8]/30 bg-[#1D4ED8]/10 px-2.5 py-1.5 text-[11px] font-medium text-[#93C5FD] transition-all hover:bg-[#1D4ED8]/20 disabled:opacity-60"
+                >
+                  {state.generatingCoverLetter ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {state.generatingCoverLetter ? "Generating…" : "Cover Letter"}
+                </button>
+              )}
+            </div>
           )}
         </TableCell>
 
@@ -1405,7 +1563,10 @@ function JobBoardTableRow({
         <TableRow className="border-[#1F2937] bg-[#0B0F14] hover:bg-[#0B0F14]">
           <TableCell colSpan={8} className="whitespace-normal p-4">
             <div className="space-y-4">
-              {resumeBlock}
+              <div className="space-y-3">
+                {resumeBlock}
+                {coverLetterBlock}
+              </div>
 
               <div className="border-t border-[#1F2937] pt-4">
                 {actions}
@@ -1435,6 +1596,7 @@ function JobBoardTableRow({
         error={state.generateError}
         onGenerate={handleGenerateResume}
       />
+      {confirmationDialog}
     </>
   );
 }
@@ -1450,15 +1612,22 @@ const TABS: { id: TabId; label: string }[] = [
 
 const LIMIT = 20;
 
-function tabToQuery(tab: TabId): { tier?: string; status?: string } {
+function tabToQuery(tab: TabId): { tier?: string; status?: string; createdWithinHours?: number } {
   switch (tab) {
     case "strong": return { tier: "strong" };
     case "maybe": return { tier: "maybe" };
-    case "new": return { status: "new" };
+    case "new": return { status: "new", createdWithinHours: 24 };
     case "saved": return { status: "saved" };
     case "applied": return { status: "applied" };
     default: return {};
   }
+}
+
+function isRecentWithinHours(value: string | undefined, hours: number) {
+  if (!value) return false;
+  const parsed = new Date(value).getTime();
+  if (!Number.isFinite(parsed)) return false;
+  return Date.now() - parsed <= hours * 60 * 60 * 1000;
 }
 
 function jobMatchesTab(job: JobMatch, tab: TabId): boolean {
@@ -1468,7 +1637,7 @@ function jobMatchesTab(job: JobMatch, tab: TabId): boolean {
     case "maybe":
       return job.matchTier === "maybe";
     case "new":
-      return job.status === "new";
+      return job.status === "new" && isRecentWithinHours(job.createdAt, 24);
     case "saved":
       return job.status === "saved";
     case "applied":
@@ -1486,21 +1655,124 @@ function parseViewMode(value: string | null): ViewMode {
   return value === "list" ? "list" : "grid";
 }
 
+function parseScoreFilter(value: string | null): ScoreFilter {
+  return value === "75" || value === "60" || value === "40" ? value : "all";
+}
+
+function parseAddedFilter(value: string | null): AddedFilter {
+  return value === "1h" ||
+    value === "6h" ||
+    value === "12h" ||
+    value === "24h" ||
+    value === "48h" ||
+    value === "72h" ||
+    value === "7d" ||
+    value === "14d" ||
+    value === "30d" ||
+    value === "90d"
+    ? value
+    : "all";
+}
+
+function parseSortMode(value: string | null): SortMode {
+  return value === "recent" || value === "oldest" || value === "score-high" || value === "score-low"
+    ? value
+    : "match";
+}
+
+function scoreMinForFilter(scoreFilter: ScoreFilter): number | undefined {
+  if (scoreFilter === "75" || scoreFilter === "60" || scoreFilter === "40") return Number(scoreFilter);
+  return undefined;
+}
+
+function hoursForAddedFilter(addedFilter: AddedFilter): number | undefined {
+  switch (addedFilter) {
+    case "1h": return 1;
+    case "6h": return 6;
+    case "12h": return 12;
+    case "24h": return 24;
+    case "48h": return 48;
+    case "72h": return 72;
+    case "3d": return 72;
+    case "7d": return 168;
+    case "14d": return 336;
+    case "30d": return 720;
+    case "90d": return 2160;
+    default: return undefined;
+  }
+}
+
+function normalizeResumeMatchedJob(job: MatchedJobSuggestion): JobMatch {
+  return {
+    id: job.id,
+    source: job.source,
+    sourceUrl: job.sourceUrl,
+    title: job.title,
+    company: job.company,
+    location: job.location,
+    remote: job.remote,
+    aiScore: job.aiScore,
+    aiSummary: job.aiSummary,
+    scoreBreakdown: job.scoreBreakdown,
+    matchTier: job.matchTier as JobMatch["matchTier"],
+    status: job.status as JobMatch["status"],
+    linkedResume: job.linkedResume
+      ? {
+          id: job.linkedResume.id,
+          title: job.linkedResume.title,
+          lastModified: job.linkedResume.lastModified,
+          resumeType: job.linkedResume.resumeType as "master" | "tailored" | undefined,
+        }
+      : undefined,
+    postedAt: job.postedAt,
+    createdAt: job.createdAt,
+  };
+}
+
+function jobPassesFilters(job: JobMatch, filters: {
+  source: string;
+  score: ScoreFilter;
+  added: AddedFilter;
+}) {
+  if (filters.source !== "all" && job.source !== filters.source) {
+    return false;
+  }
+
+  const minScore = scoreMinForFilter(filters.score);
+  if (minScore != null && (job.aiScore ?? 0) < minScore) {
+    return false;
+  }
+
+  const addedHours = hoursForAddedFilter(filters.added);
+  if (addedHours != null && !isRecentWithinHours(job.createdAt, addedHours)) {
+    return false;
+  }
+
+  return true;
+}
+
 export function JobBoard() {
+  const { confirm, confirmationDialog } = useConfirmationDialog();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<TabId>(() => parseTab(searchParams.get("tab")));
   const [viewMode, setViewMode] = useState<ViewMode>(() => parseViewMode(searchParams.get("view")));
+  const [scoreFilter, setScoreFilter] = useState<ScoreFilter>(() => parseScoreFilter(searchParams.get("score")));
+  const [addedFilter, setAddedFilter] = useState<AddedFilter>(() => parseAddedFilter(searchParams.get("added")));
+  const [sourceFilter, setSourceFilter] = useState<string>(() => searchParams.get("source") ?? "all");
+  const [sortMode, setSortMode] = useState<SortMode>(() => parseSortMode(searchParams.get("sort")));
   const [jobs, setJobs] = useState<JobMatch[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
-  const [viewingResume, setViewingResume] = useState<DocumentPreviewRef | null>(null);
+  const [viewingDocument, setViewingDocument] = useState<DocumentPreviewRef | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeProfileId = searchParams.get("profileId") || undefined;
   const activeProfileName = searchParams.get("profileName") || "";
+  const activeResumeProfileId = searchParams.get("resumeProfileId") || undefined;
+  const activeResumeProfileName = searchParams.get("resumeProfileName") || "";
 
   const hasUnscored = jobs.some((j) => j.matchTier === "new" && !j.aiScore && !j.scoreBreakdown?.error);
 
@@ -1509,28 +1781,66 @@ export function JobBoard() {
     view?: ViewMode;
     profileId?: string;
     profileName?: string;
+    resumeProfileId?: string;
+    resumeProfileName?: string;
+    score?: ScoreFilter;
+    added?: AddedFilter;
+    source?: string;
+    sort?: SortMode;
   }) => {
     const params = new URLSearchParams(searchParams);
     if (next.tab) params.set("tab", next.tab);
     if (next.view) params.set("view", next.view);
     if (next.profileId) params.set("profileId", next.profileId);
     if (next.profileName) params.set("profileName", next.profileName);
+    if (next.resumeProfileId) params.set("resumeProfileId", next.resumeProfileId);
+    if (next.resumeProfileName) params.set("resumeProfileName", next.resumeProfileName);
+    if (next.score && next.score !== "all") params.set("score", next.score); else if (next.score) params.delete("score");
+    if (next.added && next.added !== "all") params.set("added", next.added); else if (next.added) params.delete("added");
+    if (next.source && next.source !== "all") params.set("source", next.source); else if (next.source) params.delete("source");
+    if (next.sort && next.sort !== "match") params.set("sort", next.sort); else if (next.sort) params.delete("sort");
     setSearchParams(params, { replace: true });
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     const nextTab = parseTab(searchParams.get("tab"));
     const nextView = parseViewMode(searchParams.get("view"));
+    const nextScore = parseScoreFilter(searchParams.get("score"));
+    const nextAdded = parseAddedFilter(searchParams.get("added"));
+    const nextSource = searchParams.get("source") ?? "all";
+    const nextSort = parseSortMode(searchParams.get("sort"));
     setTab((current) => current === nextTab ? current : nextTab);
     setViewMode((current) => current === nextView ? current : nextView);
+    setScoreFilter((current) => current === nextScore ? current : nextScore);
+    setAddedFilter((current) => current === nextAdded ? current : nextAdded);
+    setSourceFilter((current) => current === nextSource ? current : nextSource);
+    setSortMode((current) => current === nextSort ? current : nextSort);
   }, [searchParams]);
 
   const fetchJobs = useCallback(async (reset = false, requestedOffset?: number) => {
     const currentOffset = reset ? 0 : (requestedOffset ?? offset);
     if (reset) setLoading(true);
     try {
+      if (activeResumeProfileId) {
+        const matchedJobs = await masterResumeService.getMatchedJobs(activeResumeProfileId);
+        const normalized = matchedJobs.map(normalizeResumeMatchedJob);
+        setJobs(normalized);
+        setOffset(normalized.length);
+        setTotal(normalized.length);
+        return;
+      }
+
       const q = tabToQuery(tab);
-      const res = await getResults({ ...q, profileId: activeProfileId, limit: LIMIT, offset: currentOffset });
+      const res = await getResults({
+        ...q,
+        profileId: activeProfileId,
+        source: sourceFilter !== "all" ? sourceFilter : undefined,
+        sort: sortMode === "match" ? undefined : sortMode,
+        scoreMin: scoreMinForFilter(scoreFilter),
+        createdWithinHours: q.createdWithinHours ?? hoursForAddedFilter(addedFilter),
+        limit: LIMIT,
+        offset: currentOffset,
+      });
       if (reset) {
         setJobs(res.matches);
         setOffset(LIMIT);
@@ -1545,12 +1855,28 @@ export function JobBoard() {
     } finally {
       if (reset) setLoading(false);
     }
-  }, [tab, offset, activeProfileId]);
+  }, [tab, offset, activeProfileId, activeResumeProfileId, sourceFilter, sortMode, scoreFilter, addedFilter]);
 
   const silentRefresh = useCallback(async () => {
     try {
+      if (activeResumeProfileId) {
+        const matchedJobs = await masterResumeService.getMatchedJobs(activeResumeProfileId);
+        setJobs(matchedJobs.map(normalizeResumeMatchedJob));
+        setTotal(matchedJobs.length);
+        return;
+      }
+
       const q = tabToQuery(tab);
-      const res = await getResults({ ...q, profileId: activeProfileId, limit: offset || LIMIT, offset: 0 });
+      const res = await getResults({
+        ...q,
+        profileId: activeProfileId,
+        source: sourceFilter !== "all" ? sourceFilter : undefined,
+        sort: sortMode === "match" ? undefined : sortMode,
+        scoreMin: scoreMinForFilter(scoreFilter),
+        createdWithinHours: q.createdWithinHours ?? hoursForAddedFilter(addedFilter),
+        limit: offset || LIMIT,
+        offset: 0,
+      });
       setJobs((prev) => {
         const map = new Map(res.matches.map((m) => [m.id, m]));
         return prev.map((j) => map.get(j.id) ?? j);
@@ -1559,19 +1885,43 @@ export function JobBoard() {
     } catch {
       // ignore
     }
-  }, [tab, offset, activeProfileId]);
+  }, [tab, offset, activeProfileId, activeResumeProfileId, sourceFilter, sortMode, scoreFilter, addedFilter]);
 
   const refreshCounts = useCallback(async () => {
+    if (activeResumeProfileId) {
+      const counts: Record<string, number> = {};
+      TABS.forEach(({ id }) => {
+        counts[id] = jobs.filter((job) =>
+          jobMatchesTab(job, id) &&
+          jobPassesFilters(job, {
+            source: sourceFilter,
+            score: scoreFilter,
+            added: addedFilter,
+          })
+        ).length;
+      });
+      setTabCounts(counts);
+      return;
+    }
+
     const counts: Record<string, number> = {};
     await Promise.allSettled(
       TABS.map(async ({ id }) => {
         const q = tabToQuery(id);
-        const res = await getResults({ ...q, profileId: activeProfileId, limit: 1, offset: 0 });
+        const res = await getResults({
+          ...q,
+          profileId: activeProfileId,
+          source: sourceFilter !== "all" ? sourceFilter : undefined,
+          scoreMin: scoreMinForFilter(scoreFilter),
+          createdWithinHours: q.createdWithinHours ?? hoursForAddedFilter(addedFilter),
+          limit: 1,
+          offset: 0,
+        });
         counts[id] = res.total;
       })
     );
     setTabCounts(counts);
-  }, [activeProfileId]);
+  }, [activeProfileId, activeResumeProfileId, jobs, sourceFilter, scoreFilter, addedFilter]);
 
   useEffect(() => {
     refreshCounts();
@@ -1581,7 +1931,7 @@ export function JobBoard() {
     setSelectedIds(new Set());
     setOffset(0);
     void fetchJobs(true, 0);
-  }, [tab, activeProfileId]);
+  }, [tab, activeProfileId, activeResumeProfileId, scoreFilter, addedFilter, sourceFilter, sortMode]);
 
   useEffect(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -1672,9 +2022,13 @@ export function JobBoard() {
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
-    const confirmed = window.confirm(
-      `Delete ${selectedIds.size} job${selectedIds.size > 1 ? "s" : ""} from your Job Board?`
-    );
+    const confirmed = await confirm({
+      title: `Delete ${selectedIds.size} job${selectedIds.size > 1 ? "s" : ""}?`,
+      description: `This will permanently remove ${selectedIds.size} selected job${selectedIds.size > 1 ? "s" : ""} from your Job Board.`,
+      confirmLabel: selectedIds.size > 1 ? "Delete Jobs" : "Delete Job",
+      cancelLabel: "Cancel",
+      variant: "destructive",
+    });
     if (!confirmed) return;
     const ids = Array.from(selectedIds);
     setJobs((prev) => prev.filter((j) => !selectedIds.has(j.id)));
@@ -1707,6 +2061,16 @@ export function JobBoard() {
     );
   };
 
+  const handleCoverLetterLinked = (id: string, coverLetter: NonNullable<JobMatch["linkedCoverLetter"]>) => {
+    setJobs((prev) =>
+      prev.map((job) =>
+        job.id === id
+          ? { ...job, linkedCoverLetter: coverLetter }
+          : job
+      )
+    );
+  };
+
   const handleLoadMore = async () => {
     setLoadingMore(true);
     try {
@@ -1716,7 +2080,38 @@ export function JobBoard() {
     }
   };
 
-  const visibleJobs = jobs.filter((job) => jobMatchesTab(job, tab));
+  const sourceOptions = useMemo(() => {
+    return Array.from(new Set(jobs.map((job) => job.source).filter(Boolean))).sort();
+  }, [jobs]);
+
+  const visibleJobs = useMemo(() => {
+    const filtered = jobs.filter((job) =>
+      jobMatchesTab(job, tab) &&
+      jobPassesFilters(job, {
+        source: sourceFilter,
+        score: scoreFilter,
+        added: addedFilter,
+      })
+    );
+
+    if (activeResumeProfileId && sortMode === "match") {
+      return filtered;
+    }
+    if (sortMode === "recent") {
+      return filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    if (sortMode === "oldest") {
+      return filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    }
+    if (sortMode === "score-high" || sortMode === "match") {
+      return filtered.sort((a, b) => (b.aiScore ?? 0) - (a.aiScore ?? 0) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    if (sortMode === "score-low") {
+      return filtered.sort((a, b) => (a.aiScore ?? 0) - (b.aiScore ?? 0) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+
+    return filtered;
+  }, [jobs, tab, sourceFilter, scoreFilter, addedFilter, sortMode, activeResumeProfileId]);
   const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every((j) => selectedIds.has(j.id));
   const someVisibleSelected = visibleJobs.some((j) => selectedIds.has(j.id));
 
@@ -1804,7 +2199,10 @@ export function JobBoard() {
           <button
             type="button"
             onClick={() => {
-              setSearchParams({ tab, view: viewMode }, { replace: true });
+              const params = new URLSearchParams(searchParams);
+              params.delete("profileId");
+              params.delete("profileName");
+              setSearchParams(params, { replace: true });
             }}
             className="ml-auto rounded-lg border border-[#374151] bg-[#111827] px-3 py-1.5 text-[12px] font-medium text-[#D1D5DB] transition-all hover:border-[#4F8CFF]/30 hover:text-white"
           >
@@ -1812,6 +2210,135 @@ export function JobBoard() {
           </button>
         </div>
       )}
+
+      {activeResumeProfileId && (
+        <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#22C55E]/20 bg-[#22C55E]/10 px-4 py-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#86EFAC]">Resume Match Filter</p>
+            <p className="text-[13px] text-white">
+              Showing Job Board matches ranked for {activeResumeProfileName || "this resume profile"}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const params = new URLSearchParams(searchParams);
+              params.delete("resumeProfileId");
+              params.delete("resumeProfileName");
+              setSearchParams(params, { replace: true });
+            }}
+            className="ml-auto rounded-lg border border-[#374151] bg-[#111827] px-3 py-1.5 text-[12px] font-medium text-[#D1D5DB] transition-all hover:border-[#22C55E]/30 hover:text-white"
+          >
+            Clear Resume Filter
+          </button>
+        </div>
+      )}
+
+      <div className="mb-6 rounded-xl border border-[#1F2937] bg-[#111827] p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[13px] font-semibold text-white">Filters</p>
+            <p className="text-[12px] text-[#6B7280]">Narrow jobs by freshness, score quality, source, and sort order.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setScoreFilter("all");
+              setAddedFilter("all");
+              setSourceFilter("all");
+              setSortMode("match");
+              updateSearch({ score: "all", added: "all", source: "all", sort: "match" });
+            }}
+            className="text-[12px] text-[#6B7280] transition-colors hover:text-white"
+          >
+            Reset filters
+          </button>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <label className="space-y-1">
+            <span className="text-[11px] uppercase tracking-wide text-[#6B7280]">Added</span>
+            <select
+              value={addedFilter}
+              onChange={(event) => {
+                const next = event.target.value as AddedFilter;
+                setAddedFilter(next);
+                updateSearch({ added: next });
+              }}
+              className="w-full rounded-lg border border-[#374151] bg-[#0B0F14] px-3 py-2 text-[13px] text-white"
+            >
+              <option value="all">Any time</option>
+              <option value="1h">Last 1 hour</option>
+              <option value="6h">Last 6 hours</option>
+              <option value="12h">Last 12 hours</option>
+              <option value="24h">Last 24 hours</option>
+              <option value="48h">Last 48 hours</option>
+              <option value="72h">Last 72 hours</option>
+              <option value="3d">Last 3 days</option>
+              <option value="7d">Last 7 days</option>
+              <option value="14d">Last 14 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="90d">Last 90 days</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-[11px] uppercase tracking-wide text-[#6B7280]">Match score</span>
+            <select
+              value={scoreFilter}
+              onChange={(event) => {
+                const next = event.target.value as ScoreFilter;
+                setScoreFilter(next);
+                updateSearch({ score: next });
+              }}
+              className="w-full rounded-lg border border-[#374151] bg-[#0B0F14] px-3 py-2 text-[13px] text-white"
+            >
+              <option value="all">Any score</option>
+              <option value="75">75 and up</option>
+              <option value="60">60 and up</option>
+              <option value="40">40 and up</option>
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-[11px] uppercase tracking-wide text-[#6B7280]">Source</span>
+            <select
+              value={sourceFilter}
+              onChange={(event) => {
+                const next = event.target.value;
+                setSourceFilter(next);
+                updateSearch({ source: next });
+              }}
+              className="w-full rounded-lg border border-[#374151] bg-[#0B0F14] px-3 py-2 text-[13px] text-white"
+            >
+              <option value="all">All sources</option>
+              {sourceOptions.map((source) => (
+                <option key={source} value={source}>
+                  {formatSource({ source, profileId: undefined }).label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-[11px] uppercase tracking-wide text-[#6B7280]">Sort</span>
+            <select
+              value={sortMode}
+              onChange={(event) => {
+                const next = event.target.value as SortMode;
+                setSortMode(next);
+                updateSearch({ sort: next });
+              }}
+              className="w-full rounded-lg border border-[#374151] bg-[#0B0F14] px-3 py-2 text-[13px] text-white"
+            >
+              <option value="match">Best match</option>
+              <option value="recent">Newest added</option>
+              <option value="oldest">Oldest added</option>
+              <option value="score-high">Highest score</option>
+              <option value="score-low">Lowest score</option>
+            </select>
+          </label>
+        </div>
+      </div>
 
       <div className="mb-6 border-b border-[#1F2937]">
         <div className="flex gap-0 overflow-x-auto">
@@ -1884,7 +2411,8 @@ export function JobBoard() {
                   onDelete={handleDelete}
                   onApply={handleApply}
                   onResumeLinked={handleResumeLinked}
-                  onOpenResume={setViewingResume}
+                  onCoverLetterLinked={handleCoverLetterLinked}
+                  onOpenResume={setViewingDocument}
                 />
               ))}
             </div>
@@ -1944,7 +2472,8 @@ export function JobBoard() {
                         onDelete={handleDelete}
                         onApply={handleApply}
                         onResumeLinked={handleResumeLinked}
-                        onOpenResume={setViewingResume}
+                        onCoverLetterLinked={handleCoverLetterLinked}
+                        onOpenResume={setViewingDocument}
                       />
                     ))}
                   </TableBody>
@@ -1968,9 +2497,10 @@ export function JobBoard() {
         </>
       )}
 
-      {viewingResume && (
-        <DocumentPreviewModal doc={viewingResume} onClose={() => setViewingResume(null)} />
+      {viewingDocument && (
+        <DocumentPreviewModal doc={viewingDocument} onClose={() => setViewingDocument(null)} />
       )}
+      {confirmationDialog}
     </div>
   );
 }
