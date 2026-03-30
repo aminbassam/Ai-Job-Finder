@@ -2,13 +2,15 @@ import { api } from "./api";
 
 export interface MasterResumeBullet {
   id?: string;
-  action?: string;
-  method?: string;
-  result?: string;
-  metric?: string;
+  description: string;
   tools: string[];
   keywords: string[];
-  originalText?: string;
+}
+
+export interface MasterResumeCustomSection {
+  id?: string;
+  name: string;
+  description: string;
 }
 
 export interface MasterResumeExperience {
@@ -73,6 +75,7 @@ export interface MasterResumeProfile {
   education: MasterResumeEducation[];
   projects: MasterResumeProject[];
   leadership?: MasterResumeLeadership | null;
+  customSections: MasterResumeCustomSection[];
 }
 
 export type MasterResumeProfileInput = Omit<

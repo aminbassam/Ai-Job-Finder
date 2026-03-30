@@ -1,7 +1,7 @@
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
 import { runJsonCompletion } from "./ai-client";
-import { MasterResumeProfileInput, MasterResumeBulletInput } from "./master-resume";
+import { MasterResumeProfileInput, MasterResumeBulletInput, MasterResumeCustomSectionInput } from "./master-resume";
 
 interface ParsedExperience {
   title?: string;
@@ -50,6 +50,7 @@ interface ParsedResumeJson {
     stakeholders?: string[];
     budget?: string;
   };
+  custom_sections?: Array<{ name: string; description: string }>;
 }
 
 interface ParseStructuredOptions {
@@ -255,16 +256,10 @@ function buildFallbackParsedResumeJson(rawText: string, sourceType: "linkedin" |
 }
 
 function bulletFromText(text: string): MasterResumeBulletInput {
-  const normalized = text.trim();
-  const metricMatch = normalized.match(/(\$[\d,.]+|\d+(?:\.\d+)?%|\d+(?:,\d+)*(?:\+)?)/);
   return {
-    action: normalized.split(/\bby\b/i)[0]?.trim() || normalized,
-    method: normalized.includes(" by ") ? normalized.split(/\bby\b/i)[1]?.trim() : "",
-    result: normalized,
-    metric: metricMatch?.[1] ?? "",
+    description: text.trim(),
     tools: [],
     keywords: [],
-    originalText: normalized,
   };
 }
 
@@ -429,7 +424,10 @@ Return ONLY valid JSON:
     "scope": "",
     "stakeholders": [],
     "budget": ""
-  }
+  },
+  "custom_sections": [
+    { "name": "", "description": "" }
+  ]
 }
 
 Rules:
@@ -439,6 +437,7 @@ Rules:
 - Extract bullets as concise achievement-oriented lines when possible.
 - Put schools and degrees into education.
 - Put standalone credentials into certificates.
+- Use custom_sections for any notable extra sections such as Publications, Awards, Volunteer Work, Languages, Patents, Honors, or any section that doesn't fit the standard fields.
 
 PROFILE TEXT:
 ${rawText.slice(0, 18_000)}`
@@ -491,7 +490,10 @@ Return ONLY valid JSON:
     "scope": "",
     "stakeholders": [],
     "budget": ""
-  }
+  },
+  "custom_sections": [
+    { "name": "", "description": "" }
+  ]
 }
 
 Rules:
@@ -501,6 +503,7 @@ Rules:
 - Keep only resume-relevant content.
 - Put schools and degrees into education.
 - Put standalone credentials into certificates.
+- Use custom_sections for any notable extra sections such as Publications, Awards, Volunteer Work, Languages, Patents, Honors, or any section that doesn't fit the standard fields.
 
 RESUME TEXT:
 ${rawText.slice(0, 18_000)}`;
@@ -591,6 +594,14 @@ export function normalizeImportedResumeToProfile(parsed: ParsedResumeJson, fallb
           budget: parsed.leadership.budget?.trim() || "",
         }
       : { teamSize: null, scope: "", stakeholders: [], budget: "" },
+    customSections: (parsed.custom_sections ?? [])
+      .filter((section): section is { name: string; description: string } =>
+        typeof section === "object" && typeof section.name === "string" && section.name.trim().length > 0
+      )
+      .map((section): MasterResumeCustomSectionInput => ({
+        name: section.name.trim(),
+        description: typeof section.description === "string" ? section.description.trim() : "",
+      })),
     isDefault: false,
   };
 }

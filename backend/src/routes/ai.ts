@@ -202,22 +202,18 @@ Return only valid JSON:
 {
   "bullets": [
     {
-      "action": "",
-      "method": "",
-      "result": "",
-      "metric": "",
+      "description": "",
       "tools": [],
-      "keywords": [],
-      "originalText": ""
+      "keywords": []
     }
   ]
 }
 
 Rules:
 - Do not hallucinate achievements or metrics.
-- If no metric exists, leave metric empty.
-- Use strong action verbs.
-- Keep bullets concise and recruiter-friendly.`;
+- Write each bullet as one complete, concise sentence using a strong action verb.
+- Include measurable outcomes where available.
+- Keep bullets recruiter-friendly and ATS-optimized.`;
 
     const result = await runJsonCompletion<{ bullets?: Array<Record<string, unknown>> }>({
       userId: req.userId,

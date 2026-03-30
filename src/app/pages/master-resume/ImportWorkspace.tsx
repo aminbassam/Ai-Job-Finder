@@ -18,6 +18,7 @@ import {
   masterResumeService,
   ResumeImportRecord,
 } from "../../services/masterResume.service";
+import { profileService } from "../../services/profile.service";
 
 interface ImportWorkspaceProps {
   onProfileCreated?: (profileId: string) => void;
@@ -120,6 +121,11 @@ export function ImportWorkspace({ onProfileCreated }: ImportWorkspaceProps) {
 
   useEffect(() => {
     void loadImports();
+    profileService.getProfile().then((profile) => {
+      if (profile.linkedinUrl) {
+        setLinkedinUrl((current) => current || profile.linkedinUrl!);
+      }
+    }).catch(() => undefined);
   }, []);
 
   const selectedImport = useMemo(

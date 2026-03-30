@@ -26,12 +26,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import {
   masterResumeService,
   MasterResumeBullet,
+  MasterResumeCustomSection,
   MasterResumeEducation,
   MasterResumeExperience,
-  MasterResumeLeadership,
   MasterResumeProfile,
   MasterResumeProfileInput,
-  MasterResumeProject,
   ResumeScoreResult,
 } from "../../services/masterResume.service";
 import { ResumePreferencesTab } from "../settings/ResumePreferencesTab";
@@ -46,7 +45,11 @@ interface ProfilesWorkspaceProps {
 const DEFAULT_PROFILE_NAME = "New Profile";
 
 function emptyBullet(): MasterResumeBullet {
-  return { action: "", method: "", result: "", metric: "", tools: [], keywords: [], originalText: "" };
+  return { description: "", tools: [], keywords: [] };
+}
+
+function emptyCustomSection(): MasterResumeCustomSection {
+  return { name: "", description: "" };
 }
 
 function emptyExperience(): MasterResumeExperience {
@@ -59,16 +62,9 @@ function emptyExperience(): MasterResumeExperience {
   };
 }
 
-function emptyProject(): MasterResumeProject {
-  return {
-    name: "",
-    role: "",
-    description: "",
-    tools: [],
-    teamSize: null,
-    outcome: "",
-    metrics: "",
-  };
+// kept for backward-compat with toInput() which still preserves legacy project/leadership data
+function emptyLeadershipLegacy() {
+  return { teamSize: null, scope: "", stakeholders: [], budget: "" };
 }
 
 function emptyEducation(): MasterResumeEducation {
@@ -79,15 +75,6 @@ function emptyEducation(): MasterResumeEducation {
     startDate: "",
     endDate: "",
     notes: "",
-  };
-}
-
-function emptyLeadership(): MasterResumeLeadership {
-  return {
-    teamSize: null,
-    scope: "",
-    stakeholders: [],
-    budget: "",
   };
 }
 
@@ -110,7 +97,8 @@ function emptyProfileInput(name = DEFAULT_PROFILE_NAME): MasterResumeProfileInpu
     },
     education: [],
     projects: [],
-    leadership: emptyLeadership(),
+    leadership: emptyLeadershipLegacy(),
+    customSections: [],
   };
 }
 
@@ -128,7 +116,8 @@ function toInput(profile: MasterResumeProfile): MasterResumeProfileInput {
     skills: profile.skills,
     education: profile.education ?? [],
     projects: profile.projects,
-    leadership: profile.leadership ?? emptyLeadership(),
+    leadership: profile.leadership ?? emptyLeadershipLegacy(),
+    customSections: profile.customSections ?? [],
   };
 }
 
@@ -154,11 +143,7 @@ function computeProfileHealth(profile: MasterResumeProfile) {
   const educationCount = profile.education?.length ?? 0;
   const impactBullets = bullets.filter((bullet) =>
     metricLike([
-      bullet.action,
-      bullet.method,
-      bullet.result,
-      bullet.metric,
-      bullet.originalText,
+      bullet.description,
       ...(bullet.tools ?? []),
       ...(bullet.keywords ?? []),
     ]
@@ -175,14 +160,7 @@ function computeProfileHealth(profile: MasterResumeProfile) {
     ((profile.skills.core?.length ?? 0) + (profile.skills.tools?.length ?? 0)) >= 5,
     educationCount > 0,
     certificateCount > 0,
-    profile.projects.length > 0,
-    Boolean(
-      profile.leadership && (
-        profile.leadership.scope
-        || profile.leadership.teamSize
-        || (profile.leadership.stakeholders?.length ?? 0) > 0
-      )
-    ),
+    (profile.customSections?.length ?? 0) > 0,
   ];
 
   const completeness = Math.round((completenessChecks.filter(Boolean).length / completenessChecks.length) * 100);
@@ -209,8 +187,8 @@ function computeProfileHealth(profile: MasterResumeProfile) {
   if (impactBullets.length >= 2) strengths.push("Impact bullets already include measurable outcomes");
   else gaps.push("Add quantified results to more experience bullets.");
 
-  if (profile.projects.length > 0 || profile.leadership?.scope || profile.leadership?.teamSize) strengths.push("Project or leadership proof is available");
-  else gaps.push("Add project or leadership details to strengthen seniority signals.");
+  if ((profile.customSections?.length ?? 0) > 0) strengths.push("Extra sections provide additional context");
+  else gaps.push("Add custom sections (Awards, Publications, etc.) to strengthen your profile.");
 
   return {
     readiness,
@@ -332,11 +310,11 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
     }));
   }
 
-  function updateProject(index: number, patch: Partial<MasterResumeProject>) {
+  function updateCustomSection(index: number, patch: Partial<MasterResumeCustomSection>) {
     setDraft((current) => ({
       ...current,
-      projects: current.projects.map((project, projectIndex) =>
-        projectIndex === index ? { ...project, ...patch } : project
+      customSections: (current.customSections ?? []).map((section, sectionIndex) =>
+        sectionIndex === index ? { ...section, ...patch } : section
       ),
     }));
   }
@@ -446,19 +424,15 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
         title: experience.title,
         company: experience.company,
         roleContext: draft.summary ?? "",
-        rawBullets: experience.bullets.map((bullet) => bullet.originalText || bullet.result || "").filter(Boolean),
+        rawBullets: experience.bullets.map((bullet) => bullet.description || "").filter(Boolean),
       });
 
       updateExperience(experienceIndex, {
         bullets: result.bullets.length > 0
           ? result.bullets.map((bullet) => ({
-              action: bullet.action ?? "",
-              method: bullet.method ?? "",
-              result: bullet.result ?? "",
-              metric: bullet.metric ?? "",
+              description: (bullet as MasterResumeBullet).description ?? "",
               tools: bullet.tools ?? [],
               keywords: bullet.keywords ?? [],
-              originalText: bullet.originalText ?? "",
             }))
           : experience.bullets,
       });
@@ -1065,7 +1039,7 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
             {draft.experiences.map((experience, experienceIndex) => (
               <div key={`experience-${experienceIndex}`} className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
                 <div className="mb-4 flex items-center justify-between gap-3">
-                  <h4 className="text-[14px] font-semibold text-white">Experience {experienceIndex + 1}</h4>
+                  <h4 className="text-[14px] font-semibold text-white">{experience.title.trim() || `Experience ${experienceIndex + 1}`}</h4>
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -1111,38 +1085,28 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
                 <div className="mt-4 space-y-3">
                   {experience.bullets.map((bullet, bulletIndex) => (
                     <div key={`bullet-${experienceIndex}-${bulletIndex}`} className="rounded-lg border border-[#1F2937] bg-[#111827] p-3">
-                      <div className="mb-3 flex items-center justify-between">
-                        <p className="text-[12px] font-semibold uppercase tracking-wide text-[#9CA3AF]">Bullet {bulletIndex + 1}</p>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => updateExperience(experienceIndex, { bullets: experience.bullets.filter((_, index) => index !== bulletIndex) })}
-                          className="text-[#9CA3AF] hover:text-white"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-[12px] font-semibold uppercase tracking-wide text-[#9CA3AF]">Entry {bulletIndex + 1}</p>
+                        {experience.bullets.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => updateExperience(experienceIndex, { bullets: experience.bullets.filter((_, index) => index !== bulletIndex) })}
+                            className="text-[#9CA3AF] hover:text-white"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="md:col-span-2">
-                          <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Source Note</Label>
-                          <Textarea value={bullet.originalText ?? ""} onChange={(event) => updateBullet(experienceIndex, bulletIndex, { originalText: event.target.value })} rows={2} className="border-[#1F2937] bg-[#0B0F14] text-white" />
-                        </div>
-                        <div>
-                          <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Action</Label>
-                          <Input value={bullet.action ?? ""} onChange={(event) => updateBullet(experienceIndex, bulletIndex, { action: event.target.value })} className="border-[#1F2937] bg-[#0B0F14] text-white" />
-                        </div>
-                        <div>
-                          <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Metric</Label>
-                          <Input value={bullet.metric ?? ""} onChange={(event) => updateBullet(experienceIndex, bulletIndex, { metric: event.target.value })} className="border-[#1F2937] bg-[#0B0F14] text-white" />
-                        </div>
-                        <div>
-                          <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Method</Label>
-                          <Textarea value={bullet.method ?? ""} onChange={(event) => updateBullet(experienceIndex, bulletIndex, { method: event.target.value })} rows={2} className="border-[#1F2937] bg-[#0B0F14] text-white" />
-                        </div>
-                        <div>
-                          <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Result</Label>
-                          <Textarea value={bullet.result ?? ""} onChange={(event) => updateBullet(experienceIndex, bulletIndex, { result: event.target.value })} rows={2} className="border-[#1F2937] bg-[#0B0F14] text-white" />
-                        </div>
+                      <div>
+                        <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Description</Label>
+                        <Textarea
+                          value={bullet.description}
+                          onChange={(event) => updateBullet(experienceIndex, bulletIndex, { description: event.target.value })}
+                          rows={3}
+                          placeholder="Describe what you accomplished, how you did it, and the impact..."
+                          className="border-[#1F2937] bg-[#0B0F14] text-white"
+                        />
                       </div>
                       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div>
@@ -1164,7 +1128,7 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
                     className="border-[#374151] bg-[#111827] text-white hover:bg-[#1F2937]"
                   >
                     <Plus className="h-4 w-4" />
-                    Add Bullet
+                    Add More Experience
                   </Button>
                 </div>
               </div>
@@ -1174,58 +1138,63 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
 
         <Card className="border-[#1F2937] bg-[#111827] p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-[16px] font-semibold text-white">Project Highlights & Leadership</h3>
+            <div>
+              <h3 className="text-[16px] font-semibold text-white">Additional Sections</h3>
+              <p className="mt-0.5 text-[12px] text-[#6B7280]">Awards, Publications, Languages, Volunteer Work, or any custom section.</p>
+            </div>
             <Button
               variant="outline"
-              onClick={() => updateDraft("projects", [...draft.projects, emptyProject()])}
+              onClick={() => updateDraft("customSections", [...(draft.customSections ?? []), emptyCustomSection()])}
               className="border-[#374151] bg-[#1F2937] text-white hover:bg-[#374151]"
             >
               <Plus className="h-4 w-4" />
-              Add Project
+              Add New Section
             </Button>
           </div>
 
+          {(draft.customSections ?? []).length === 0 && (
+            <p className="rounded-lg border border-dashed border-[#1F2937] p-4 text-center text-[13px] text-[#6B7280]">
+              No additional sections yet. Click "Add New Section" to create one.
+            </p>
+          )}
+
           <div className="space-y-4">
-            {draft.projects.map((project, index) => (
-              <div key={`project-${index}`} className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+            {(draft.customSections ?? []).map((section, sectionIndex) => (
+              <div key={`section-${sectionIndex}`} className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <h4 className="text-[14px] font-semibold text-white">Project {index + 1}</h4>
+                  <h4 className="text-[14px] font-semibold text-white">{section.name.trim() || `Section ${sectionIndex + 1}`}</h4>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => updateDraft("projects", draft.projects.filter((_, projectIndex) => projectIndex !== index))}
+                    onClick={() => updateDraft("customSections", (draft.customSections ?? []).filter((_, index) => index !== sectionIndex))}
                     className="text-[#9CA3AF] hover:text-white"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <Input value={project.name} onChange={(event) => updateProject(index, { name: event.target.value })} className="border-[#1F2937] bg-[#111827] text-white" placeholder="Project name" />
-                  <Input value={project.role ?? ""} onChange={(event) => updateProject(index, { role: event.target.value })} className="border-[#1F2937] bg-[#111827] text-white" placeholder="Role" />
-                  <Textarea value={project.description ?? ""} onChange={(event) => updateProject(index, { description: event.target.value })} rows={3} className="border-[#1F2937] bg-[#111827] text-white md:col-span-2" placeholder="Description" />
-                  <Input type="number" value={project.teamSize ?? ""} onChange={(event) => updateProject(index, { teamSize: event.target.value ? Number(event.target.value) : null })} className="border-[#1F2937] bg-[#111827] text-white" placeholder="Team size" />
-                  <Input value={project.metrics ?? ""} onChange={(event) => updateProject(index, { metrics: event.target.value })} className="border-[#1F2937] bg-[#111827] text-white" placeholder="Metrics / quantified impact" />
-                  <Textarea value={project.outcome ?? ""} onChange={(event) => updateProject(index, { outcome: event.target.value })} rows={2} className="border-[#1F2937] bg-[#111827] text-white md:col-span-2" placeholder="Outcome" />
-                  <div className="md:col-span-2">
-                    <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Tools</Label>
-                    <TagInput tags={project.tools ?? []} onChange={(tags) => updateProject(index, { tools: tags })} />
+                <div className="space-y-3">
+                  <div>
+                    <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Section Name</Label>
+                    <Input
+                      value={section.name}
+                      onChange={(event) => updateCustomSection(sectionIndex, { name: event.target.value })}
+                      placeholder="e.g. Publications, Awards, Volunteer Work, Languages…"
+                      className="border-[#1F2937] bg-[#111827] text-white"
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Description</Label>
+                    <Textarea
+                      value={section.description}
+                      onChange={(event) => updateCustomSection(sectionIndex, { description: event.target.value })}
+                      rows={4}
+                      placeholder="Add details for this section…"
+                      className="border-[#1F2937] bg-[#111827] text-white"
+                    />
                   </div>
                 </div>
               </div>
             ))}
-
-            <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
-              <h4 className="mb-3 text-[14px] font-semibold text-white">Leadership</h4>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <Input type="number" value={draft.leadership?.teamSize ?? ""} onChange={(event) => updateDraft("leadership", { ...(draft.leadership ?? emptyLeadership()), teamSize: event.target.value ? Number(event.target.value) : null })} className="border-[#1F2937] bg-[#111827] text-white" placeholder="Team size" />
-                <Input value={draft.leadership?.budget ?? ""} onChange={(event) => updateDraft("leadership", { ...(draft.leadership ?? emptyLeadership()), budget: event.target.value })} className="border-[#1F2937] bg-[#111827] text-white" placeholder="Budget ownership" />
-                <Textarea value={draft.leadership?.scope ?? ""} onChange={(event) => updateDraft("leadership", { ...(draft.leadership ?? emptyLeadership()), scope: event.target.value })} rows={3} className="border-[#1F2937] bg-[#111827] text-white md:col-span-2" placeholder="Leadership scope" />
-                <div className="md:col-span-2">
-                  <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Stakeholders</Label>
-                  <TagInput tags={draft.leadership?.stakeholders ?? []} onChange={(tags) => updateDraft("leadership", { ...(draft.leadership ?? emptyLeadership()), stakeholders: tags })} />
-                </div>
-              </div>
-            </div>
           </div>
         </Card>
         </fieldset>

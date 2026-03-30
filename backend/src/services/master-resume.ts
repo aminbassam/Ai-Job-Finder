@@ -3,13 +3,15 @@ import { getGlobalAiSettings } from "./ai-global-settings";
 
 export interface MasterResumeBulletInput {
   id?: string;
-  action?: string;
-  method?: string;
-  result?: string;
-  metric?: string;
+  description?: string;
   tools?: string[];
   keywords?: string[];
-  originalText?: string;
+}
+
+export interface MasterResumeCustomSectionInput {
+  id?: string;
+  name: string;
+  description: string;
 }
 
 export interface MasterResumeExperienceInput {
@@ -70,6 +72,7 @@ export interface MasterResumeProfileInput {
   education: MasterResumeEducationInput[];
   projects: MasterResumeProjectInput[];
   leadership?: MasterResumeLeadershipInput | null;
+  customSections?: MasterResumeCustomSectionInput[];
 }
 
 export interface MasterResumeProfileAggregate {
@@ -93,13 +96,9 @@ export interface MasterResumeProfileAggregate {
     endDate?: string | null;
     bullets: Array<{
       id: string;
-      action?: string | null;
-      method?: string | null;
-      result?: string | null;
-      metric?: string | null;
+      description: string;
       tools: string[];
       keywords: string[];
-      originalText?: string | null;
     }>;
   }>;
   skills: MasterResumeSkillsInput;
@@ -128,6 +127,11 @@ export interface MasterResumeProfileAggregate {
     stakeholders: string[];
     budget?: string | null;
   } | null;
+  customSections: Array<{
+    id: string;
+    name: string;
+    description: string;
+  }>;
 }
 
 function dedupe(items?: string[] | null): string[] {
@@ -205,6 +209,10 @@ export async function saveMasterResumeProfile(userId: string, input: MasterResum
       );
       await q(
         `DELETE FROM master_resume_experiences WHERE profile_id = $1`,
+        [profileId]
+      );
+      await q(
+        `DELETE FROM master_resume_custom_sections WHERE profile_id = $1`,
         [profileId]
       );
     } else {
@@ -317,21 +325,31 @@ export async function saveMasterResumeProfile(userId: string, input: MasterResum
       for (const [bulletIndex, bullet] of experience.bullets.entries()) {
         await q(
           `INSERT INTO master_resume_bullets (
-             experience_id, action, method, result, metric, tools, keywords, original_text, sort_order
-           ) VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9)`,
+             experience_id, original_text, tools, keywords, sort_order
+           ) VALUES ($1, $2, $3::text[], $4::text[], $5)`,
           [
             savedExperienceId,
-            bullet.action?.trim() ?? null,
-            bullet.method?.trim() ?? null,
-            bullet.result?.trim() ?? null,
-            bullet.metric?.trim() ?? null,
+            bullet.description?.trim() ?? null,
             dedupe(bullet.tools),
             dedupe(bullet.keywords),
-            bullet.originalText?.trim() ?? null,
             bulletIndex,
           ]
         );
       }
+    }
+
+    for (const [sectionIndex, section] of (input.customSections ?? []).entries()) {
+      if (!section.name?.trim()) continue;
+      await q(
+        `INSERT INTO master_resume_custom_sections (profile_id, name, description, sort_order)
+         VALUES ($1, $2, $3, $4)`,
+        [
+          savedProfileId,
+          section.name.trim(),
+          section.description?.trim() ?? "",
+          sectionIndex,
+        ]
+      );
     }
   });
 
@@ -411,6 +429,12 @@ export async function getMasterResumeProfile(userId: string, profileId: string):
     `SELECT * FROM master_resume_leadership WHERE profile_id = $1`,
     [profileId]
   );
+  const customSections = await query<Record<string, unknown>>(
+    `SELECT * FROM master_resume_custom_sections
+     WHERE profile_id = $1
+     ORDER BY sort_order, created_at`,
+    [profileId]
+  );
 
   return {
     id: String(profile.id),
@@ -435,13 +459,9 @@ export async function getMasterResumeProfile(userId: string, profileId: string):
         .filter((bullet) => String(bullet.experience_id) === String(experience.id))
         .map((bullet) => ({
           id: String(bullet.id),
-          action: (bullet.action as string | null) ?? null,
-          method: (bullet.method as string | null) ?? null,
-          result: (bullet.result as string | null) ?? null,
-          metric: (bullet.metric as string | null) ?? null,
+          description: (bullet.original_text as string | null) ?? "",
           tools: (bullet.tools as string[] | null) ?? [],
           keywords: (bullet.keywords as string[] | null) ?? [],
-          originalText: (bullet.original_text as string | null) ?? null,
         })),
     })),
     skills: {
@@ -477,6 +497,11 @@ export async function getMasterResumeProfile(userId: string, profileId: string):
           budget: (leadership.budget as string | null) ?? null,
         }
       : null,
+    customSections: customSections.map((section) => ({
+      id: String(section.id),
+      name: String(section.name),
+      description: (section.description as string | null) ?? "",
+    })),
   };
 }
 
@@ -619,23 +644,12 @@ export async function getMasterResumeContextForProfile(userId: string, profileId
   for (const experience of aggregate.experiences.slice(0, 6)) {
     lines.push(`Experience: ${experience.title} at ${experience.company}`);
     for (const bullet of experience.bullets.slice(0, 4)) {
-      const bulletText = [bullet.action, bullet.method, bullet.result, bullet.metric, bullet.originalText]
-        .filter(Boolean)
-        .join(" | ");
-      if (bulletText) lines.push(`- ${bulletText}`);
+      if (bullet.description) lines.push(`- ${bullet.description}`);
     }
   }
 
-  for (const project of aggregate.projects.slice(0, 4)) {
-    lines.push(`Project: ${project.name}${project.role ? ` (${project.role})` : ""}`);
-    lines.push([project.description, project.outcome, project.metrics].filter(Boolean).join(" | "));
-  }
-
-  if (aggregate.leadership) {
-    if (aggregate.leadership.teamSize) lines.push(`Leadership team size: ${aggregate.leadership.teamSize}`);
-    if (aggregate.leadership.scope) lines.push(`Leadership scope: ${aggregate.leadership.scope}`);
-    if (aggregate.leadership.stakeholders.length > 0) lines.push(`Stakeholders: ${aggregate.leadership.stakeholders.join(", ")}`);
-    if (aggregate.leadership.budget) lines.push(`Budget: ${aggregate.leadership.budget}`);
+  for (const section of aggregate.customSections.slice(0, 6)) {
+    lines.push(`${section.name}: ${section.description}`);
   }
 
   return lines.filter(Boolean).join("\n");

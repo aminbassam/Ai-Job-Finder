@@ -17,13 +17,15 @@ router.use(requireAuth);
 
 const bulletSchema = z.object({
   id: z.string().uuid().optional(),
-  action: z.string().max(500).optional().or(z.literal("")),
-  method: z.string().max(1500).optional().or(z.literal("")),
-  result: z.string().max(1500).optional().or(z.literal("")),
-  metric: z.string().max(300).optional().or(z.literal("")),
+  description: z.string().max(3000).optional().or(z.literal("")),
   tools: z.array(z.string().max(100)).default([]),
   keywords: z.array(z.string().max(100)).default([]),
-  originalText: z.string().max(3000).optional().or(z.literal("")),
+});
+
+const customSectionSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(200),
+  description: z.string().max(10000).optional().or(z.literal("")),
 });
 
 const experienceSchema = z.object({
@@ -82,6 +84,7 @@ const profileSchema = z.object({
   education: z.array(educationSchema).default([]),
   projects: z.array(projectSchema).default([]),
   leadership: leadershipSchema.optional().nullable(),
+  customSections: z.array(customSectionSchema).default([]),
 });
 
 router.get("/profiles", async (req: Request, res: Response) => {
