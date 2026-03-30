@@ -22,26 +22,15 @@ import { profileService, type ProfileData } from "../services/profile.service";
 const USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30}[A-Za-z0-9])?$/;
 
 export function Settings() {
-  const { user, updateUser } = useAuth();
+  const { updateUser } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isAdmin = Boolean(user?.isAdmin);
-  const initialTab = isAdmin ? (searchParams.get("tab") ?? "profile") : "profile";
+  const initialTab = searchParams.get("tab") ?? "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
 
   useEffect(() => {
     const nextTab = searchParams.get("tab") ?? "profile";
-    if (!isAdmin && nextTab !== "profile") {
-      const next = new URLSearchParams(searchParams);
-      next.set("tab", "profile");
-      next.delete("gmail");
-      next.delete("message");
-      next.delete("email");
-      setSearchParams(next, { replace: true });
-      setActiveTab("profile");
-      return;
-    }
-    setActiveTab(isAdmin ? nextTab : "profile");
-  }, [isAdmin, searchParams, setSearchParams]);
+    setActiveTab(nextTab);
+  }, [searchParams]);
 
   // ── Profile tab state ────────────────────────────────────────────────────────
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -206,38 +195,34 @@ export function Settings() {
             <User className="h-4 w-4 mr-2" />
             Profile
           </TabsTrigger>
-          {isAdmin && (
-            <>
-              <TabsTrigger value="ai" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-                <Sparkles className="h-4 w-4 mr-2" />
-                AI Settings
-              </TabsTrigger>
-              <TabsTrigger value="formatting" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-                <FileText className="h-4 w-4 mr-2" />
-                Resume Formatting
-              </TabsTrigger>
-              <TabsTrigger value="cover-letter" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-                <MailOpen className="h-4 w-4 mr-2" />
-                Cover Letter
-              </TabsTrigger>
-              <TabsTrigger value="integrations" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-                <PlugZap className="h-4 w-4 mr-2" />
-                Integrations
-              </TabsTrigger>
-              <TabsTrigger value="notifications" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-                <Bell className="h-4 w-4 mr-2" />
-                Notifications
-              </TabsTrigger>
-              <TabsTrigger value="billing" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-                <CreditCard className="h-4 w-4 mr-2" />
-                Billing
-              </TabsTrigger>
-              <TabsTrigger value="downloads" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-                <Download className="h-4 w-4 mr-2" />
-                Download Extension
-              </TabsTrigger>
-            </>
-          )}
+          <TabsTrigger value="ai" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+            <Sparkles className="h-4 w-4 mr-2" />
+            AI Settings
+          </TabsTrigger>
+          <TabsTrigger value="formatting" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+            <FileText className="h-4 w-4 mr-2" />
+            Resume Formatting
+          </TabsTrigger>
+          <TabsTrigger value="cover-letter" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+            <MailOpen className="h-4 w-4 mr-2" />
+            Cover Letter
+          </TabsTrigger>
+          <TabsTrigger value="integrations" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+            <PlugZap className="h-4 w-4 mr-2" />
+            Integrations
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+            <Bell className="h-4 w-4 mr-2" />
+            Notifications
+          </TabsTrigger>
+          <TabsTrigger value="billing" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+            <CreditCard className="h-4 w-4 mr-2" />
+            Billing
+          </TabsTrigger>
+          <TabsTrigger value="downloads" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+            <Download className="h-4 w-4 mr-2" />
+            Download Extension
+          </TabsTrigger>
         </TabsList>
 
         {/* Profile Tab */}
