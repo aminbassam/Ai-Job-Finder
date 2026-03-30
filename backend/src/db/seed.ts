@@ -4,9 +4,7 @@
  *
  * Safe to re-run (uses INSERT … ON CONFLICT DO NOTHING).
  */
-import dotenv from "dotenv";
-dotenv.config();
-
+import "../config/load-env";
 import bcrypt from "bcryptjs";
 import { pool } from "./pool";
 

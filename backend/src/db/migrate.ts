@@ -2,12 +2,10 @@
  * Migration runner — applies schema + all migration files in order.
  * Usage: npm run db:migrate
  */
+import "../config/load-env";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { Pool } from "pg";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -42,6 +40,17 @@ function splitSql(sql: string): string[] {
   let dollarTag = "";
   let i = 0;
   while (i < sql.length) {
+    if (!inDollarQuote && sql.slice(i, i + 2) === "--") {
+      i += 2;
+      while (i < sql.length && sql[i] !== "\n") i++;
+      continue;
+    }
+    if (!inDollarQuote && sql.slice(i, i + 2) === "/*") {
+      i += 2;
+      while (i < sql.length && sql.slice(i, i + 2) !== "*/") i++;
+      i = Math.min(i + 2, sql.length);
+      continue;
+    }
     if (!inDollarQuote) {
       const tagMatch = sql.slice(i).match(/^(\$[^$]*\$)/);
       if (tagMatch) {

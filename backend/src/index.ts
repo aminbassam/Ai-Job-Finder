@@ -1,5 +1,4 @@
-import dotenv from "dotenv";
-dotenv.config();
+import "./config/load-env";
 
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -101,6 +100,17 @@ function splitSql(sql: string): string[] {
   let i = 0;
 
   while (i < sql.length) {
+    if (!inDollarQuote && sql.slice(i, i + 2) === "--") {
+      i += 2;
+      while (i < sql.length && sql[i] !== "\n") i++;
+      continue;
+    }
+    if (!inDollarQuote && sql.slice(i, i + 2) === "/*") {
+      i += 2;
+      while (i < sql.length && sql.slice(i, i + 2) !== "*/") i++;
+      i = Math.min(i + 2, sql.length);
+      continue;
+    }
     // Detect start/end of $$ or $tag$ dollar-quote blocks
     if (!inDollarQuote) {
       const tagMatch = sql.slice(i).match(/^(\$[^$]*\$)/);
@@ -138,6 +148,7 @@ function splitSql(sql: string): string[] {
 
 async function applyMigrations() {
   const ROOT = join(__dirname, "../../");
+  const baseSchema = { name: "schema", file: join(ROOT, "db/postgres_schema.sql") };
   const migrations = [
     { name: "001_email_verification",     file: join(ROOT, "db/migrations/001_email_verification.sql") },
     { name: "002_admin_role",             file: join(ROOT, "db/migrations/002_admin_role.sql") },
@@ -155,9 +166,32 @@ async function applyMigrations() {
     { name: "014_master_resume_use_for_ai", file: join(ROOT, "db/migrations/014_master_resume_use_for_ai.sql") },
     { name: "015_master_resume_education", file: join(ROOT, "db/migrations/015_master_resume_education.sql") },
     { name: "016_gmail_linkedin_ingestion", file: join(ROOT, "db/migrations/016_gmail_linkedin_ingestion.sql") },
+    { name: "017_profile_activity_logs", file: join(ROOT, "db/migrations/017_profile_activity_logs.sql") },
   ];
   const client = await pool.connect();
   try {
+    const {
+      rows: [schemaState],
+    } = await client.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM information_schema.tables
+         WHERE table_schema = 'public' AND table_name = 'account_users'
+       ) AS exists`
+    );
+
+    if (!schemaState?.exists) {
+      console.log("[db] Applying base schema ...");
+      const sql = readFileSync(baseSchema.file, "utf8");
+      const statements = splitSql(sql);
+      for (const stmt of statements) {
+        await client.query(stmt);
+      }
+      console.log("[db] Base schema applied.");
+    } else {
+      console.log("[db] Base schema already present.");
+    }
+
     for (const migration of migrations) {
       const sql = readFileSync(migration.file, "utf8");
       const statements = splitSql(sql);
@@ -193,6 +227,7 @@ async function applyMigrations() {
     console.log("[db] All migrations up to date.");
   } catch (err) {
     console.error("[db] Migration error:", (err as Error).message);
+    throw err;
   } finally {
     client.release();
   }

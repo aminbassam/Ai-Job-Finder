@@ -6,9 +6,7 @@
  *
  * Usage: npm run db:fix-owner
  */
-import dotenv from "dotenv";
-dotenv.config();
-
+import "../config/load-env";
 import { Pool } from "pg";
 
 // Connect as the current OS user (superuser in Postgres.app / native installs)
