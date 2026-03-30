@@ -5,6 +5,10 @@ import { requireAuth } from "../middleware/auth";
 const router = Router();
 router.use(requireAuth);
 
+function parseCount(value: string | undefined) {
+  return Number.parseInt(value ?? "0", 10) || 0;
+}
+
 // ── GET /api/analytics/dashboard ─────────────────────────────────────────────
 
 router.get("/dashboard", async (req: Request, res: Response): Promise<void> => {
@@ -13,34 +17,40 @@ router.get("/dashboard", async (req: Request, res: Response): Promise<void> => {
   try {
     const [jobsToday, highMatch, resumesGenerated, applicationsSent] = await Promise.all([
       query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM user_job_states
+        `SELECT COUNT(*)::text AS count
+         FROM job_matches
          WHERE user_id = $1 AND created_at >= CURRENT_DATE`,
         [uid]
       ),
       query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM (
-           SELECT DISTINCT job_id FROM job_score_runs
-           WHERE user_id = $1 AND score >= 70
-         ) sq`,
+        `SELECT COUNT(*)::text AS count
+         FROM job_matches
+         WHERE user_id = $1
+           AND COALESCE(ai_score, 0) >= 70`,
         [uid]
       ),
       query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM documents
-         WHERE user_id = $1 AND kind = 'resume' AND resume_type = 'tailored'`,
+        `SELECT COUNT(*)::text AS count
+         FROM documents
+         WHERE user_id = $1
+           AND kind = 'resume'
+           AND resume_type = 'tailored'`,
         [uid]
       ),
       query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM applications
-         WHERE user_id = $1 AND status NOT IN ('draft')`,
+        `SELECT COUNT(*)::text AS count
+         FROM job_matches
+         WHERE user_id = $1
+           AND status = 'applied'`,
         [uid]
       ),
     ]);
 
     res.json({
-      jobsFoundToday:   parseInt(jobsToday[0]?.count ?? "0", 10),
-      highMatchJobs:    parseInt(highMatch[0]?.count ?? "0", 10),
-      resumesGenerated: parseInt(resumesGenerated[0]?.count ?? "0", 10),
-      applicationsSent: parseInt(applicationsSent[0]?.count ?? "0", 10),
+      jobsFoundToday: parseCount(jobsToday[0]?.count),
+      highMatchJobs: parseCount(highMatch[0]?.count),
+      resumesGenerated: parseCount(resumesGenerated[0]?.count),
+      applicationsSent: parseCount(applicationsSent[0]?.count),
     });
   } catch (err) {
     console.error("[analytics/dashboard]", err);
@@ -53,17 +63,22 @@ router.get("/dashboard", async (req: Request, res: Response): Promise<void> => {
 router.get("/jobs-per-week", async (req: Request, res: Response): Promise<void> => {
   try {
     const rows = await query<{ week_start: string; jobs_found: string }>(
-      `SELECT week_start::text, jobs_found::text
-       FROM analytics_jobs_per_week
+      `SELECT
+         date_trunc('week', created_at)::date::text AS week_start,
+         COUNT(*)::text AS jobs_found
+       FROM job_matches
        WHERE user_id = $1
-       ORDER BY week_start DESC
+       GROUP BY date_trunc('week', created_at)::date
+       ORDER BY date_trunc('week', created_at)::date DESC
        LIMIT 8`,
       [req.userId]
     );
-    const data = rows.reverse().map((r, i) => ({
-      week: `Week ${i + 1}`,
-      jobs: parseInt(r.jobs_found, 10),
+
+    const data = rows.reverse().map((row, index) => ({
+      week: `Week ${index + 1}`,
+      jobs: parseCount(row.jobs_found),
     }));
+
     res.json(data);
   } catch (err) {
     console.error("[analytics/jobs-per-week]", err);
@@ -76,17 +91,22 @@ router.get("/jobs-per-week", async (req: Request, res: Response): Promise<void> 
 router.get("/source-performance", async (req: Request, res: Response): Promise<void> => {
   try {
     const rows = await query<{ source_name: string; jobs_found: string; avg_match_score: string }>(
-      `SELECT source_name, jobs_found::text, COALESCE(avg_match_score, 0)::text AS avg_match_score
-       FROM analytics_source_performance
-       WHERE user_id = $1`,
+      `SELECT
+         COALESCE(NULLIF(source, ''), 'Unknown') AS source_name,
+         COUNT(*)::text AS jobs_found,
+         ROUND(AVG(COALESCE(ai_score, 0))::numeric, 2)::text AS avg_match_score
+       FROM job_matches
+       WHERE user_id = $1
+       GROUP BY COALESCE(NULLIF(source, ''), 'Unknown')
+       ORDER BY COUNT(*) DESC, source_name ASC`,
       [req.userId]
     );
-    const data = rows.map((r) => ({
-      source: r.source_name,
-      jobs: parseInt(r.jobs_found, 10),
-      avgScore: parseFloat(r.avg_match_score),
-    }));
-    res.json(data);
+
+    res.json(rows.map((row) => ({
+      source: row.source_name,
+      jobs: parseCount(row.jobs_found),
+      avgScore: Number.parseFloat(row.avg_match_score ?? "0") || 0,
+    })));
   } catch (err) {
     console.error("[analytics/source-performance]", err);
     res.status(500).json({ message: "Failed to fetch source performance." });
@@ -98,15 +118,39 @@ router.get("/source-performance", async (req: Request, res: Response): Promise<v
 router.get("/funnel", async (req: Request, res: Response): Promise<void> => {
   try {
     const rows = await query<{ stage: string; total: string }>(
-      `SELECT stage, total::text FROM analytics_application_funnel WHERE user_id = $1`,
+      `SELECT 'Jobs Found'::text AS stage, COUNT(*)::text AS total
+       FROM job_matches
+       WHERE user_id = $1
+       UNION ALL
+       SELECT 'High Match'::text AS stage, COUNT(*)::text AS total
+       FROM job_matches
+       WHERE user_id = $1
+         AND COALESCE(ai_score, 0) >= 70
+       UNION ALL
+       SELECT 'Applied'::text AS stage, COUNT(*)::text AS total
+       FROM job_matches
+       WHERE user_id = $1
+         AND status = 'applied'
+       UNION ALL
+       SELECT 'Interview'::text AS stage, COUNT(*)::text AS total
+       FROM applications
+       WHERE user_id = $1
+         AND status IN ('interview', 'offer', 'accepted')
+       UNION ALL
+       SELECT 'Offer'::text AS stage, COUNT(*)::text AS total
+       FROM applications
+       WHERE user_id = $1
+         AND status IN ('offer', 'accepted')`,
       [req.userId]
     );
 
     const order = ["Jobs Found", "High Match", "Applied", "Interview", "Offer"];
-    const map = Object.fromEntries(rows.map((r) => [r.stage, parseInt(r.total, 10)]));
-    const data = order.map((stage) => ({ stage, count: map[stage] ?? 0 }));
+    const map = Object.fromEntries(rows.map((row) => [row.stage, parseCount(row.total)]));
 
-    res.json(data);
+    res.json(order.map((stage) => ({
+      stage,
+      count: map[stage] ?? 0,
+    })));
   } catch (err) {
     console.error("[analytics/funnel]", err);
     res.status(500).json({ message: "Failed to fetch funnel data." });
@@ -117,27 +161,40 @@ router.get("/funnel", async (req: Request, res: Response): Promise<void> => {
 
 router.get("/score-distribution", async (req: Request, res: Response): Promise<void> => {
   try {
-    const rows = await query<{ range: string; count: string }>(
+    const [row] = await query<{
+      bucket_90_100: string;
+      bucket_80_89: string;
+      bucket_70_79: string;
+      bucket_60_69: string;
+      bucket_below_60: string;
+    }>(
       `SELECT
-         CASE
-           WHEN score >= 90 THEN '90-100'
-           WHEN score >= 80 THEN '80-89'
-           WHEN score >= 70 THEN '70-79'
-           WHEN score >= 60 THEN '60-69'
-           ELSE '<60'
-         END AS range,
-         COUNT(*)::text AS count
-       FROM (
-         SELECT DISTINCT ON (job_id) score
-         FROM job_score_runs
-         WHERE user_id = $1
-         ORDER BY job_id, created_at DESC
-       ) latest_scores
-       GROUP BY range
-       ORDER BY range DESC`,
+         COUNT(*) FILTER (WHERE COALESCE(ai_score, 0) >= 90)::text AS bucket_90_100,
+         COUNT(*) FILTER (
+           WHERE COALESCE(ai_score, 0) >= 80
+             AND COALESCE(ai_score, 0) < 90
+         )::text AS bucket_80_89,
+         COUNT(*) FILTER (
+           WHERE COALESCE(ai_score, 0) >= 70
+             AND COALESCE(ai_score, 0) < 80
+         )::text AS bucket_70_79,
+         COUNT(*) FILTER (
+           WHERE COALESCE(ai_score, 0) >= 60
+             AND COALESCE(ai_score, 0) < 70
+         )::text AS bucket_60_69,
+         COUNT(*) FILTER (WHERE COALESCE(ai_score, 0) < 60)::text AS bucket_below_60
+       FROM job_matches
+       WHERE user_id = $1`,
       [req.userId]
     );
-    res.json(rows.map((r) => ({ range: r.range, count: parseInt(r.count, 10) })));
+
+    res.json([
+      { range: "90-100", count: parseCount(row?.bucket_90_100) },
+      { range: "80-89", count: parseCount(row?.bucket_80_89) },
+      { range: "70-79", count: parseCount(row?.bucket_70_79) },
+      { range: "60-69", count: parseCount(row?.bucket_60_69) },
+      { range: "<60", count: parseCount(row?.bucket_below_60) },
+    ]);
   } catch (err) {
     console.error("[analytics/score-distribution]", err);
     res.status(500).json({ message: "Failed to fetch score distribution." });
