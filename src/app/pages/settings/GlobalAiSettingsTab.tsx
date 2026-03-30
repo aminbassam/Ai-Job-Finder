@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain, Shield, Sparkles, Loader2, CheckCircle2, Wand2 } from "lucide-react";
+import { Brain, Shield, Sparkles, Loader2, CheckCircle2, Wand2, Type } from "lucide-react";
 import { Card } from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";

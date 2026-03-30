@@ -24,7 +24,6 @@ const USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30}[A-Za-z0-9])?$/;
 export function Settings() {
   const { user, updateUser } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isAdmin = true;
   const initialTab = searchParams.get("tab") ?? "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
 
@@ -444,89 +443,87 @@ export function Settings() {
           </Card>
         </TabsContent>
 
-        {isAdmin && (
-          <>
-            {/* AI Providers Tab */}
-            <TabsContent value="ai">
-              <div className="space-y-4">
-                <Card className="bg-[#111827] border-[#1F2937] p-6">
-                  <h2 className="text-[20px] font-semibold text-white mb-6">AI Provider Settings</h2>
-                  <AiProvidersTab />
-                </Card>
+        {/* AI Providers Tab */}
+        <TabsContent value="ai">
+          <div className="space-y-4">
+            <Card className="bg-[#111827] border-[#1F2937] p-6">
+              <h2 className="text-[20px] font-semibold text-white mb-6">AI Provider Settings</h2>
+              <AiProvidersTab />
+            </Card>
+            <div>
+              <h2 className="mb-2 text-[20px] font-semibold text-white">Global AI Behaviour</h2>
+              <p className="mb-6 text-[13px] text-[#9CA3AF]">
+                Control how AI writes, what it prioritizes, and which always-on instructions are injected into resume generation and summarization.
+              </p>
+              <GlobalAiSettingsTab />
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="formatting">
+          <div>
+            <h2 className="mb-2 text-[20px] font-semibold text-white">Resume Formatting</h2>
+            <p className="mb-6 text-[13px] text-[#9CA3AF]">
+              Manage the visual defaults for generated resumes separately from AI writing behavior.
+            </p>
+            <ResumeFormattingTab />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="cover-letter">
+          <div>
+            <h2 className="mb-2 text-[20px] font-semibold text-white">Cover Letter Settings</h2>
+            <p className="mb-6 text-[13px] text-[#9CA3AF]">
+              Manage the generation rules and writing defaults used for AI cover letters.
+            </p>
+            <CoverLetterSettingsTab />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="integrations">
+          <IntegrationsTab />
+        </TabsContent>
+
+        {/* Notifications Tab */}
+        <TabsContent value="notifications">
+          <Card className="bg-[#111827] border-[#1F2937] p-6">
+            <h2 className="text-[20px] font-semibold text-white mb-6">Notification Preferences</h2>
+            <div className="space-y-4 max-w-2xl">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
                 <div>
-                  <h2 className="mb-2 text-[20px] font-semibold text-white">Global AI Behaviour</h2>
-                  <p className="mb-6 text-[13px] text-[#9CA3AF]">
-                    Control how AI writes, what it prioritizes, and which always-on instructions are injected into resume generation and summarization.
-                  </p>
-                  <GlobalAiSettingsTab />
+                  <p className="text-[14px] font-medium text-white mb-1">New job matches</p>
+                  <p className="text-[12px] text-[#9CA3AF]">Get notified when new high-match jobs are found</p>
                 </div>
+                <Switch defaultChecked />
               </div>
-            </TabsContent>
-
-            <TabsContent value="formatting">
-              <div>
-                <h2 className="mb-2 text-[20px] font-semibold text-white">Resume Formatting</h2>
-                <p className="mb-6 text-[13px] text-[#9CA3AF]">
-                  Manage the visual defaults for generated resumes separately from AI writing behavior.
-                </p>
-                <ResumeFormattingTab />
-              </div>
-            </TabsContent>
-
-            <TabsContent value="cover-letter">
-              <div>
-                <h2 className="mb-2 text-[20px] font-semibold text-white">Cover Letter Settings</h2>
-                <p className="mb-6 text-[13px] text-[#9CA3AF]">
-                  Manage the generation rules and writing defaults used for AI cover letters.
-                </p>
-                <CoverLetterSettingsTab />
-              </div>
-            </TabsContent>
-
-            <TabsContent value="integrations">
-              <IntegrationsTab />
-            </TabsContent>
-
-            {/* Notifications Tab */}
-            <TabsContent value="notifications">
-              <Card className="bg-[#111827] border-[#1F2937] p-6">
-                <h2 className="text-[20px] font-semibold text-white mb-6">Notification Preferences</h2>
-                <div className="space-y-4 max-w-2xl">
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                    <div>
-                      <p className="text-[14px] font-medium text-white mb-1">New job matches</p>
-                      <p className="text-[12px] text-[#9CA3AF]">Get notified when new high-match jobs are found</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                    <div>
-                      <p className="text-[14px] font-medium text-white mb-1">Application updates</p>
-                      <p className="text-[12px] text-[#9CA3AF]">Status changes on your applications</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                    <div>
-                      <p className="text-[14px] font-medium text-white mb-1">Weekly summary</p>
-                      <p className="text-[12px] text-[#9CA3AF]">Receive a weekly report of your job search activity</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                    <div>
-                      <p className="text-[14px] font-medium text-white mb-1">AI insights</p>
-                      <p className="text-[12px] text-[#9CA3AF]">Tips and recommendations from AI analysis</p>
-                    </div>
-                    <Switch />
-                  </div>
+              <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
+                <div>
+                  <p className="text-[14px] font-medium text-white mb-1">Application updates</p>
+                  <p className="text-[12px] text-[#9CA3AF]">Status changes on your applications</p>
                 </div>
-              </Card>
-            </TabsContent>
+                <Switch defaultChecked />
+              </div>
+              <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
+                <div>
+                  <p className="text-[14px] font-medium text-white mb-1">Weekly summary</p>
+                  <p className="text-[12px] text-[#9CA3AF]">Receive a weekly report of your job search activity</p>
+                </div>
+                <Switch defaultChecked />
+              </div>
+              <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
+                <div>
+                  <p className="text-[14px] font-medium text-white mb-1">AI insights</p>
+                  <p className="text-[12px] text-[#9CA3AF]">Tips and recommendations from AI analysis</p>
+                </div>
+                <Switch />
+              </div>
+            </div>
+          </Card>
+        </TabsContent>
 
-            {/* Billing Tab */}
-            <TabsContent value="billing">
-              <Card className="bg-[#111827] border-[#1F2937] p-6">
+        {/* Billing Tab */}
+        <TabsContent value="billing">
+          <Card className="bg-[#111827] border-[#1F2937] p-6">
             <h2 className="text-[20px] font-semibold text-white mb-6">Billing & Subscription</h2>
             <div className="space-y-6 max-w-2xl">
               <div className="p-6 rounded-lg bg-gradient-to-r from-[#4F8CFF]/10 to-[#8B5CF6]/10 border border-[#4F8CFF]/30">
@@ -614,8 +611,6 @@ export function Settings() {
             </div>
           </Card>
         </TabsContent>
-          </>
-        )}
       </Tabs>
     </div>
   );
