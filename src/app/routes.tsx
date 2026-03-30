@@ -1,13 +1,15 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import { RootLayout } from "./components/layouts/RootLayout";
-import { ProtectedRoute, GuestRoute } from "./components/auth/ProtectedRoute";
+import { ProtectedRoute, GuestRoute, AdminRoute } from "./components/auth/ProtectedRoute";
 import { Dashboard } from "./pages/Dashboard";
 import { JobAgent } from "./pages/JobAgent";
 import { JobBoard } from "./pages/JobBoard";
 import { JobDetail } from "./pages/JobDetail";
 import { Resume } from "./pages/Resume";
+import { CoverLetters } from "./pages/CoverLetters";
 import { Applications } from "./pages/Applications";
 import { Analytics } from "./pages/Analytics";
+import { Updates } from "./pages/Updates";
 import { Settings } from "./pages/Settings";
 import { Login } from "./pages/auth/Login";
 import { Signup } from "./pages/auth/Signup";
@@ -61,13 +63,36 @@ export const router = createBrowserRouter([
       { path: "agent",  Component: JobAgent   },
       { path: "jobs", Component: JobBoard },
       { path: "jobs/:id", Component: JobDetail },
+      { path: "cover-letters", Component: CoverLetters },
       { path: "resume",  Component: Resume     },
       { path: "resumes", element: <Navigate to="/jobs" replace /> },
       { path: "applications", Component: Applications },
       { path: "analytics", Component: Analytics },
+      {
+        path: "updates",
+        element: (
+          <AdminRoute>
+            <Updates />
+          </AdminRoute>
+        ),
+      },
       { path: "settings", Component: Settings },
-      { path: "admin/users", Component: AdminUsers },
-      { path: "admin/logs", Component: PlatformLogs },
+      {
+        path: "admin/users",
+        element: (
+          <AdminRoute>
+            <AdminUsers />
+          </AdminRoute>
+        ),
+      },
+      {
+        path: "admin/logs",
+        element: (
+          <AdminRoute>
+            <PlatformLogs />
+          </AdminRoute>
+        ),
+      },
     ],
   },
 

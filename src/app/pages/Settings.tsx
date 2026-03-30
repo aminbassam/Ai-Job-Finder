@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
-import { User, Sparkles, Bell, CreditCard, PlugZap, Download } from "lucide-react";
+import { User, Sparkles, Bell, CreditCard, PlugZap, Download, FileText, MailOpen } from "lucide-react";
 import { AiProvidersTab } from "./settings/AiProvidersTab";
 import { GlobalAiSettingsTab } from "./settings/GlobalAiSettingsTab";
 import { IntegrationsTab } from "./settings/IntegrationsTab";
+import { ResumeFormattingTab } from "./settings/ResumeFormattingTab";
+import { CoverLetterSettingsTab } from "./settings/CoverLetterSettingsTab";
 import { Card } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Input } from "../components/ui/input";
@@ -22,13 +24,24 @@ const USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30}[A-Za-z0-9])?$/;
 export function Settings() {
   const { user, updateUser } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = searchParams.get("tab") ?? "profile";
+  const isAdmin = Boolean(user?.isAdmin);
+  const initialTab = isAdmin ? (searchParams.get("tab") ?? "profile") : "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
 
   useEffect(() => {
     const nextTab = searchParams.get("tab") ?? "profile";
-    setActiveTab(nextTab);
-  }, [searchParams]);
+    if (!isAdmin && nextTab !== "profile") {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", "profile");
+      next.delete("gmail");
+      next.delete("message");
+      next.delete("email");
+      setSearchParams(next, { replace: true });
+      setActiveTab("profile");
+      return;
+    }
+    setActiveTab(isAdmin ? nextTab : "profile");
+  }, [isAdmin, searchParams, setSearchParams]);
 
   // ── Profile tab state ────────────────────────────────────────────────────────
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -193,26 +206,38 @@ export function Settings() {
             <User className="h-4 w-4 mr-2" />
             Profile
           </TabsTrigger>
-          <TabsTrigger value="ai" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-            <Sparkles className="h-4 w-4 mr-2" />
-            AI Settings
-          </TabsTrigger>
-          <TabsTrigger value="integrations" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-            <PlugZap className="h-4 w-4 mr-2" />
-            Integrations
-          </TabsTrigger>
-          <TabsTrigger value="notifications" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-            <Bell className="h-4 w-4 mr-2" />
-            Notifications
-          </TabsTrigger>
-          <TabsTrigger value="billing" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-            <CreditCard className="h-4 w-4 mr-2" />
-            Billing
-          </TabsTrigger>
-          <TabsTrigger value="downloads" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
-            <Download className="h-4 w-4 mr-2" />
-            Download Extension
-          </TabsTrigger>
+          {isAdmin && (
+            <>
+              <TabsTrigger value="ai" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+                <Sparkles className="h-4 w-4 mr-2" />
+                AI Settings
+              </TabsTrigger>
+              <TabsTrigger value="formatting" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+                <FileText className="h-4 w-4 mr-2" />
+                Resume Formatting
+              </TabsTrigger>
+              <TabsTrigger value="cover-letter" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+                <MailOpen className="h-4 w-4 mr-2" />
+                Cover Letter
+              </TabsTrigger>
+              <TabsTrigger value="integrations" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+                <PlugZap className="h-4 w-4 mr-2" />
+                Integrations
+              </TabsTrigger>
+              <TabsTrigger value="notifications" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+                <Bell className="h-4 w-4 mr-2" />
+                Notifications
+              </TabsTrigger>
+              <TabsTrigger value="billing" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+                <CreditCard className="h-4 w-4 mr-2" />
+                Billing
+              </TabsTrigger>
+              <TabsTrigger value="downloads" className="data-[state=active]:bg-[#4F8CFF] data-[state=active]:text-white">
+                <Download className="h-4 w-4 mr-2" />
+                Download Extension
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         {/* Profile Tab */}
@@ -433,68 +458,89 @@ export function Settings() {
           </Card>
         </TabsContent>
 
-        {/* AI Providers Tab */}
-        <TabsContent value="ai">
-          <div className="space-y-4">
-            <Card className="bg-[#111827] border-[#1F2937] p-6">
-              <h2 className="text-[20px] font-semibold text-white mb-6">AI Provider Settings</h2>
-              <AiProvidersTab />
-            </Card>
-
-            <Card className="bg-[#111827] border-[#1F2937] p-6">
-              <h2 className="text-[20px] font-semibold text-white mb-2">Global AI Behaviour</h2>
-              <p className="text-[13px] text-[#9CA3AF] mb-6">
-                These rules apply across AI-generated resumes, AI resume improvement, and other shared AI writing flows.
-              </p>
-              <GlobalAiSettingsTab />
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="integrations">
-          <IntegrationsTab />
-        </TabsContent>
-
-        {/* Notifications Tab */}
-        <TabsContent value="notifications">
-          <Card className="bg-[#111827] border-[#1F2937] p-6">
-            <h2 className="text-[20px] font-semibold text-white mb-6">Notification Preferences</h2>
-            <div className="space-y-4 max-w-2xl">
-              <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
+        {isAdmin && (
+          <>
+            {/* AI Providers Tab */}
+            <TabsContent value="ai">
+              <div className="space-y-4">
+                <Card className="bg-[#111827] border-[#1F2937] p-6">
+                  <h2 className="text-[20px] font-semibold text-white mb-6">AI Provider Settings</h2>
+                  <AiProvidersTab />
+                </Card>
                 <div>
-                  <p className="text-[14px] font-medium text-white mb-1">New job matches</p>
-                  <p className="text-[12px] text-[#9CA3AF]">Get notified when new high-match jobs are found</p>
+                  <h2 className="mb-2 text-[20px] font-semibold text-white">Global AI Behaviour</h2>
+                  <p className="mb-6 text-[13px] text-[#9CA3AF]">
+                    Control how AI writes, what it prioritizes, and which always-on instructions are injected into resume generation and summarization.
+                  </p>
+                  <GlobalAiSettingsTab />
                 </div>
-                <Switch defaultChecked />
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                <div>
-                  <p className="text-[14px] font-medium text-white mb-1">Application updates</p>
-                  <p className="text-[12px] text-[#9CA3AF]">Status changes on your applications</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                <div>
-                  <p className="text-[14px] font-medium text-white mb-1">Weekly summary</p>
-                  <p className="text-[12px] text-[#9CA3AF]">Receive a weekly report of your job search activity</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
-                <div>
-                  <p className="text-[14px] font-medium text-white mb-1">AI insights</p>
-                  <p className="text-[12px] text-[#9CA3AF]">Tips and recommendations from AI analysis</p>
-                </div>
-                <Switch />
-              </div>
-            </div>
-          </Card>
-        </TabsContent>
+            </TabsContent>
 
-        {/* Billing Tab */}
-        <TabsContent value="billing">
-          <Card className="bg-[#111827] border-[#1F2937] p-6">
+            <TabsContent value="formatting">
+              <div>
+                <h2 className="mb-2 text-[20px] font-semibold text-white">Resume Formatting</h2>
+                <p className="mb-6 text-[13px] text-[#9CA3AF]">
+                  Manage the visual defaults for generated resumes separately from AI writing behavior.
+                </p>
+                <ResumeFormattingTab />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="cover-letter">
+              <div>
+                <h2 className="mb-2 text-[20px] font-semibold text-white">Cover Letter Settings</h2>
+                <p className="mb-6 text-[13px] text-[#9CA3AF]">
+                  Manage the generation rules and writing defaults used for AI cover letters.
+                </p>
+                <CoverLetterSettingsTab />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="integrations">
+              <IntegrationsTab />
+            </TabsContent>
+
+            {/* Notifications Tab */}
+            <TabsContent value="notifications">
+              <Card className="bg-[#111827] border-[#1F2937] p-6">
+                <h2 className="text-[20px] font-semibold text-white mb-6">Notification Preferences</h2>
+                <div className="space-y-4 max-w-2xl">
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
+                    <div>
+                      <p className="text-[14px] font-medium text-white mb-1">New job matches</p>
+                      <p className="text-[12px] text-[#9CA3AF]">Get notified when new high-match jobs are found</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
+                    <div>
+                      <p className="text-[14px] font-medium text-white mb-1">Application updates</p>
+                      <p className="text-[12px] text-[#9CA3AF]">Status changes on your applications</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
+                    <div>
+                      <p className="text-[14px] font-medium text-white mb-1">Weekly summary</p>
+                      <p className="text-[12px] text-[#9CA3AF]">Receive a weekly report of your job search activity</p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-lg bg-[#0B0F14] border border-[#1F2937]">
+                    <div>
+                      <p className="text-[14px] font-medium text-white mb-1">AI insights</p>
+                      <p className="text-[12px] text-[#9CA3AF]">Tips and recommendations from AI analysis</p>
+                    </div>
+                    <Switch />
+                  </div>
+                </div>
+              </Card>
+            </TabsContent>
+
+            {/* Billing Tab */}
+            <TabsContent value="billing">
+              <Card className="bg-[#111827] border-[#1F2937] p-6">
             <h2 className="text-[20px] font-semibold text-white mb-6">Billing & Subscription</h2>
             <div className="space-y-6 max-w-2xl">
               <div className="p-6 rounded-lg bg-gradient-to-r from-[#4F8CFF]/10 to-[#8B5CF6]/10 border border-[#4F8CFF]/30">
@@ -582,6 +628,8 @@ export function Settings() {
             </div>
           </Card>
         </TabsContent>
+          </>
+        )}
       </Tabs>
     </div>
   );

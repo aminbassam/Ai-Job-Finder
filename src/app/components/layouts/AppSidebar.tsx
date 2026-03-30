@@ -3,9 +3,11 @@ import {
   LayoutDashboard,
   Zap,
   Briefcase,
+  FileText,
   Wand2,
   ListChecks,
   BarChart3,
+  History,
   Settings,
   Sparkles,
   LogOut,
@@ -20,9 +22,10 @@ import { useAuth } from "../../contexts/AuthContext";
 
 const navigation = [
   { name: "Dashboard",    href: "/",            icon: LayoutDashboard },
+  { name: "Master Resume", href: "/resume",      icon: Wand2           },
   { name: "Job Agent",    href: "/agent",        icon: Zap             },
   { name: "Job Board",    href: "/jobs",         icon: Briefcase       },
-  { name: "Master Resume", href: "/resume",      icon: Wand2           },
+  { name: "Cover Letters", href: "/cover-letters", icon: FileText      },
   { name: "Applications", href: "/applications", icon: ListChecks      },
   { name: "Analytics",    href: "/analytics",    icon: BarChart3       },
   { name: "Settings",     href: "/settings",     icon: Settings        },
@@ -37,6 +40,7 @@ export function AppSidebar() {
     ...navigation,
     ...(user?.isAdmin
       ? [
+          { name: "Updates", href: "/updates", icon: History },
           { name: "Admin", href: "/admin/users", icon: Shield },
           { name: "Platform Logs", href: "/admin/logs", icon: ScrollText },
         ]

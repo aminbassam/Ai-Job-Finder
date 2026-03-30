@@ -46,3 +46,24 @@ export function GuestRoute({ children }: ProtectedRouteProps) {
 
   return <>{children}</>;
 }
+
+export function AdminRoute({ children }: ProtectedRouteProps) {
+  const { isAuthenticated, user } = useAuth();
+  const location = useLocation();
+
+  if (!isAuthenticated) {
+    return (
+      <Navigate to="/auth/login" state={{ from: location.pathname }} replace />
+    );
+  }
+
+  if (user && !user.emailVerified) {
+    return <Navigate to="/auth/verify-email" replace />;
+  }
+
+  if (!user?.isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
