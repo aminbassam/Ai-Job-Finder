@@ -71,12 +71,6 @@ export function Dashboard() {
             </p>
           </div>
         )}
-        <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-4 py-3 text-[13px] text-[#FCD34D]">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>
-            Dashboard data is currently mock data for layout preview. Live account metrics and activity will be completed soon.
-          </p>
-        </div>
       </div>
 
       {/* Stats Grid */}
