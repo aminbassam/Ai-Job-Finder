@@ -17,19 +17,19 @@ export function StatCard({ title, value, icon: Icon, change, changeType = "neutr
   };
 
   return (
-    <Card className="bg-[#111827] border-[#1F2937] p-6 hover:border-[#4F8CFF]/30 transition-colors">
-      <div className="flex items-start justify-between">
+    <Card className="bg-[#111827] border-[#1F2937] p-4 transition-colors hover:border-[#4F8CFF]/30 sm:p-5 lg:p-6">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex-1">
           <p className="text-[13px] text-[#9CA3AF] mb-1">{title}</p>
-          <p className="text-[28px] font-semibold text-white mb-1">{value}</p>
+          <p className="mb-1 text-[24px] font-semibold leading-none text-white sm:text-[26px] lg:text-[28px]">{value}</p>
           {change && (
-            <p className={`text-[12px] ${changeColors[changeType]}`}>
+            <p className={`text-[11px] leading-5 sm:text-[12px] ${changeColors[changeType]}`}>
               {change}
             </p>
           )}
         </div>
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#4F8CFF]/10">
-          <Icon className="h-6 w-6 text-[#4F8CFF]" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#4F8CFF]/10 sm:h-11 sm:w-11 lg:h-12 lg:w-12">
+          <Icon className="h-5 w-5 text-[#4F8CFF] sm:h-5 sm:w-5 lg:h-6 lg:w-6" />
         </div>
       </div>
     </Card>
