@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain, FileText, Loader2, Sparkles } from "lucide-react";
+import { Brain, ChevronDown, FileText, Loader2, Sparkles } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,6 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
 import { Label } from "../ui/label";
 import {
   Select,
@@ -18,6 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { masterResumeService, type MasterResumeProfile } from "../../services/masterResume.service";
 import { settingsService, type AiProviderInfo } from "../../services/settings.service";
 
@@ -32,6 +39,7 @@ interface ResumeGenerationDialogProps {
     profileIds?: string[];
     useLegacyPreferences?: boolean;
     provider: "openai" | "anthropic";
+    customRole?: string;
   }) => Promise<void>;
 }
 
@@ -51,10 +59,11 @@ export function ResumeGenerationDialog({
   const [loading, setLoading] = useState(false);
   const [profiles, setProfiles] = useState<MasterResumeProfile[]>([]);
   const [providers, setProviders] = useState<AiProviderInfo[]>([]);
-  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
-  const [includeLegacyPreferences, setIncludeLegacyPreferences] = useState(false);
+  const [customRoles, setCustomRoles] = useState<string[]>([]);
   const [legacyAiEnabled, setLegacyAiEnabled] = useState(false);
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "">("");
+  const [selectedCustomRole, setSelectedCustomRole] = useState<string>("__default");
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -73,12 +82,16 @@ export function ResumeGenerationDialog({
         if (cancelled) return;
         const enabledProfiles = nextProfiles.filter((profile) => profile.isActive && profile.useForAi);
         setProfiles(enabledProfiles);
+        setSelectedProfileIds(enabledProfiles.map((profile) => profile.id));
         setProviders(nextProviders.filter((item) => item.status === "connected"));
+        const availableCustomRoles = Array.isArray(prefs.aiCustomRoles)
+          ? prefs.aiCustomRoles.filter((role): role is string => typeof role === "string" && role.trim().length > 0)
+          : [];
+        setCustomRoles(availableCustomRoles);
+        setSelectedCustomRole("__default");
 
         const legacyPreferred = Boolean(prefs.useLegacyResumePreferencesForAi);
         setLegacyAiEnabled(legacyPreferred);
-        setIncludeLegacyPreferences(legacyPreferred && enabledProfiles.length === 0);
-        setSelectedProfileIds(enabledProfiles.slice(0, 1).map((profile) => profile.id));
 
         const preferredProvider = prefs.defaultAiProvider;
         const providerCandidate = nextProviders.find((item) => item.status === "connected" && item.provider === preferredProvider)
@@ -102,8 +115,6 @@ export function ResumeGenerationDialog({
     };
   }, [open]);
 
-  const selectedCount = selectedProfileIds.length + (includeLegacyPreferences ? 1 : 0);
-
   const sourceOptions = useMemo(
     () => profiles.map((profile) => ({
       value: profile.id,
@@ -113,16 +124,23 @@ export function ResumeGenerationDialog({
     [profiles]
   );
 
-  function toggleProfile(profileId: string) {
-    setSelectedProfileIds((current) => {
-      if (current.includes(profileId)) {
-        return current.filter((item) => item !== profileId);
-      }
-      if (current.length >= 2) {
-        return [...current.slice(1), profileId];
-      }
-      return [...current, profileId];
-    });
+  const allSelected = sourceOptions.length > 0 && selectedProfileIds.length === sourceOptions.length;
+  const selectedProfileSummary =
+    selectedProfileIds.length === 0
+      ? "Select resume profiles"
+      : selectedProfileIds.length === 1
+        ? sourceOptions.find((option) => option.value === selectedProfileIds[0])?.label ?? "1 profile selected"
+        : `${selectedProfileIds.length} profiles selected`;
+  const selectedProfileDetails = sourceOptions
+    .filter((option) => selectedProfileIds.includes(option.value))
+    .map((option) => option.label)
+    .join(", ");
+
+  function toggleProfile(profileId: string, checked: boolean) {
+    setSelectedProfileIds((prev) =>
+      checked ? Array.from(new Set([...prev, profileId])) : prev.filter((id) => id !== profileId)
+    );
+    setLocalError(null);
   }
 
   async function handleGenerate() {
@@ -130,148 +148,225 @@ export function ResumeGenerationDialog({
       setLocalError("Connect and select an AI provider first.");
       return;
     }
-    if (selectedCount === 0) {
-      setLocalError("Select at least one AI-enabled resume profile or Legacy Preferences.");
+    if (sourceOptions.length === 0) {
+      setLocalError("Activate at least one resume profile with AI enabled before generating a tailored resume.");
+      return;
+    }
+    if (selectedProfileIds.length === 0) {
+      setLocalError("Select at least one resume profile to use for this tailored resume.");
       return;
     }
 
     setLocalError(null);
     await onGenerate({
       profileIds: selectedProfileIds,
-      useLegacyPreferences: includeLegacyPreferences,
       provider: selectedProvider,
+      customRole: selectedCustomRole !== "__default" ? selectedCustomRole : undefined,
     });
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl border-[#1F2937] bg-[#111827] text-white">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[92vh] w-[min(960px,calc(100vw-1.5rem))] flex-col overflow-hidden border-[#1F2937] bg-[#111827] p-0 text-white">
+        <DialogHeader className="border-b border-[#1F2937] px-5 py-4 sm:px-6">
           <DialogTitle className="flex items-center gap-2 text-white">
             <FileText className="h-5 w-5 text-[#4F8CFF]" />
             Generate Tailored Resume
           </DialogTitle>
           <DialogDescription className="text-[#9CA3AF]">
-            Choose up to two resume profiles and the AI provider that should generate the best tailored resume for
+            Choose which resume profile data should be used with the selected AI provider to generate the best tailored resume for
             {" "}
             <span className="font-medium text-white">{jobTitle}</span>
             {company ? ` at ${company}` : ""}.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5">
-          <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-4 text-[12px] text-[#9CA3AF]">
-            The selected profiles, job description, requirements, and global AI rules will be combined to generate a stronger ATS-friendly resume.
-          </div>
-
-          {(error || localError) && (
-            <div className="rounded-lg border border-[#7F1D1D] bg-[#7F1D1D]/10 px-4 py-3 text-[13px] text-[#FCA5A5]">
-              {error || localError}
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
+          <div className="space-y-4">
+            <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-[#4F8CFF]/30 bg-[#4F8CFF]/10 px-2.5 py-1 text-[11px] font-medium text-[#BFDBFE]">
+                  {selectedProfileIds.length} profile{selectedProfileIds.length === 1 ? "" : "s"} selected
+                </span>
+                <span className="rounded-full border border-[#1F2937] bg-[#111827] px-2.5 py-1 text-[11px] text-[#9CA3AF]">
+                  {company || "Target company"}
+                </span>
+                <span className="rounded-full border border-[#1F2937] bg-[#111827] px-2.5 py-1 text-[11px] text-[#9CA3AF]">
+                  {jobTitle}
+                </span>
+              </div>
+              <p className="mt-3 text-[12px] leading-relaxed text-[#9CA3AF]">
+                Select the strongest resume profiles for this job. JobFlow will combine only the selected profiles, the job description, and your AI rules. Deactivated profiles stay excluded automatically.
+              </p>
             </div>
-          )}
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <Label className="text-[12px] uppercase tracking-wide text-[#9CA3AF]">Resume Profiles</Label>
-              <span className="text-[11px] text-[#6B7280]">Choose up to 2 profiles</span>
-            </div>
-            <div className="space-y-2">
-              {sourceOptions.length > 0 ? sourceOptions.map((option) => (
-                <label
-                  key={option.value}
-                  className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#1F2937] bg-[#0B0F14] p-3"
-                >
-                  <Checkbox
-                    checked={selectedProfileIds.includes(option.value)}
-                    onCheckedChange={() => toggleProfile(option.value)}
-                    disabled={loading || generating || (!selectedProfileIds.includes(option.value) && selectedCount >= 2)}
-                    className="mt-0.5 border-[#374151] data-[state=checked]:border-[#4F8CFF] data-[state=checked]:bg-[#4F8CFF]"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium text-white">{option.label}</p>
-                    <p className="text-[11px] text-[#6B7280]">{option.description}</p>
+            {(error || localError) && (
+              <div className="rounded-lg border border-[#7F1D1D] bg-[#7F1D1D]/10 px-4 py-3 text-[13px] text-[#FCA5A5]">
+                {error || localError}
+              </div>
+            )}
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+              <div className="space-y-4">
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(220px,0.8fr)]">
+                  <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+                    <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Resume Profiles</Label>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          disabled={loading || generating || sourceOptions.length === 0}
+                          className="flex w-full items-center justify-between rounded-lg border border-[#1F2937] bg-[#111827] px-3 py-2.5 text-left text-white transition-colors hover:border-[#374151] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-medium">{selectedProfileSummary}</p>
+                            <p className="mt-0.5 truncate text-[11px] text-[#6B7280]">
+                              {selectedProfileDetails || "Choose one or more active AI-enabled resume profiles"}
+                            </p>
+                          </div>
+                          <ChevronDown className="ml-3 h-4 w-4 shrink-0 text-[#9CA3AF]" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-[min(420px,calc(100vw-3rem))] border-[#1F2937] bg-[#111827] text-white">
+                        <DropdownMenuLabel className="text-[12px] uppercase tracking-wide text-[#9CA3AF]">
+                          Select Resume Profiles
+                        </DropdownMenuLabel>
+                        {sourceOptions.length > 0 && (
+                          <>
+                            <DropdownMenuSeparator className="bg-[#1F2937]" />
+                            <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-[#6B7280]">
+                              <span>{sourceOptions.length} available</span>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedProfileIds(allSelected ? [] : sourceOptions.map((option) => option.value))}
+                                className="font-medium text-[#93C5FD] hover:text-white"
+                              >
+                                {allSelected ? "Clear all" : "Select all"}
+                              </button>
+                            </div>
+                            <DropdownMenuSeparator className="bg-[#1F2937]" />
+                          </>
+                        )}
+                        {sourceOptions.length > 0 ? sourceOptions.map((option) => (
+                          <DropdownMenuCheckboxItem
+                            key={option.value}
+                            checked={selectedProfileIds.includes(option.value)}
+                            onCheckedChange={(checked) => toggleProfile(option.value, Boolean(checked))}
+                            className="focus:bg-[#1F2937] focus:text-white"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-[13px] font-medium text-white">{option.label}</p>
+                              <p className="truncate text-[11px] text-[#6B7280]">{option.description}</p>
+                            </div>
+                          </DropdownMenuCheckboxItem>
+                        )) : (
+                          <div className="px-2 py-2 text-[12px] text-[#9CA3AF]">
+                            No structured profiles are currently enabled for AI resume generation.
+                          </div>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                </label>
-              )) : (
-                <div className="rounded-lg border border-dashed border-[#1F2937] bg-[#0B0F14] p-3 text-[12px] text-[#9CA3AF]">
-                  No structured profiles are currently enabled for AI resume generation.
-                </div>
-              )}
 
-              <label className={`flex items-start gap-3 rounded-lg border p-3 ${legacyAiEnabled ? "border-[#1F2937] bg-[#0B0F14]" : "border-dashed border-[#1F2937] bg-[#0B0F14]/60 opacity-70"}`}>
-                <Checkbox
-                  checked={includeLegacyPreferences}
-                  onCheckedChange={(checked) => setIncludeLegacyPreferences(Boolean(checked))}
-                  disabled={loading || generating || !legacyAiEnabled || (!includeLegacyPreferences && selectedCount >= 2)}
-                  className="mt-0.5 border-[#374151] data-[state=checked]:border-[#4F8CFF] data-[state=checked]:bg-[#4F8CFF]"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium text-white">Legacy Preferences</p>
-                  <p className="text-[11px] text-[#6B7280]">
-                    {legacyAiEnabled
-                      ? "Include the compatibility profile and older resume preferences."
-                      : "Enable Legacy Preferences for AI in Master Resume before selecting it here."}
+                  <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+                    <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">AI Provider</Label>
+                    <Select
+                      value={selectedProvider}
+                      onValueChange={(value) => setSelectedProvider(value as "openai" | "anthropic")}
+                      disabled={loading || generating}
+                    >
+                      <SelectTrigger className="border-[#1F2937] bg-[#111827] text-white">
+                        <SelectValue placeholder="Choose the AI provider to use" />
+                      </SelectTrigger>
+                      <SelectContent className="border-[#1F2937] bg-[#111827] text-white">
+                        {providers.length > 0 ? providers.map((provider) => (
+                          <SelectItem key={provider.provider} value={provider.provider}>
+                            <div className="flex flex-col">
+                              <span>{providerLabel(provider.provider)}</span>
+                              <span className="text-[11px] text-[#6B7280]">
+                                {provider.selectedModel || "Connected"}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        )) : (
+                          <SelectItem value="__no_provider" disabled>
+                            No connected AI providers
+                          </SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+                    <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">AI Custom Profile</Label>
+                    <Select
+                      value={selectedCustomRole}
+                      onValueChange={setSelectedCustomRole}
+                      disabled={loading || generating || customRoles.length === 0}
+                    >
+                      <SelectTrigger className="border-[#1F2937] bg-[#111827] text-white">
+                        <SelectValue placeholder="Use default AI behavior" />
+                      </SelectTrigger>
+                      <SelectContent className="border-[#1F2937] bg-[#111827] text-white">
+                        <SelectItem value="__default">Use default AI behavior</SelectItem>
+                        {customRoles.map((role) => (
+                          <SelectItem key={role} value={role}>
+                            {role}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-2 text-[11px] leading-relaxed text-[#6B7280]">
+                      {customRoles.length > 0
+                        ? "Choose one custom AI role if you want the generator to emphasize a specific writing lens."
+                        : "No custom AI roles are saved in AI Settings yet."}
+                    </p>
+                  </div>
+
+                  <div className={`rounded-xl border p-4 ${legacyAiEnabled ? "border-[#1F2937] bg-[#0B0F14]" : "border-dashed border-[#1F2937] bg-[#0B0F14]/60 opacity-70"}`}>
+                    <p className="text-[13px] font-medium text-white">Legacy Preferences</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-[#6B7280]">
+                      {legacyAiEnabled
+                        ? "Enabled in AI settings as supplemental compatibility context."
+                        : "Disabled in AI settings. Only active structured resume profiles will be used."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+                  <p className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-[#4F8CFF]">
+                    <Sparkles className="h-4 w-4" />
+                    Included Inputs
+                  </p>
+                  <ul className="space-y-1.5 text-[12px] text-[#D1D5DB]">
+                    <li>• Only the resume profiles you select from the dropdown</li>
+                    <li>• Deactivated profiles are still ignored automatically</li>
+                    <li>• Legacy Preferences only if enabled in AI settings</li>
+                    <li>• Job title, description, and requirements</li>
+                    <li>• Global AI rules and formatting settings</li>
+                    {selectedCustomRole !== "__default" ? <li>• Custom AI role: {selectedCustomRole}</li> : null}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+                  <p className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-[#4F8CFF]">
+                    <Brain className="h-4 w-4" />
+                    Goal
+                  </p>
+                  <p className="text-[12px] leading-relaxed text-[#D1D5DB]">
+                    Generate a high-quality, approval-ready tailored resume that improves ATS alignment without inventing experience or metrics.
                   </p>
                 </div>
-              </label>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-[12px] uppercase tracking-wide text-[#9CA3AF]">AI Provider</Label>
-            <Select
-              value={selectedProvider}
-              onValueChange={(value) => setSelectedProvider(value as "openai" | "anthropic")}
-              disabled={loading || generating}
-            >
-              <SelectTrigger className="border-[#1F2937] bg-[#0B0F14] text-white">
-                <SelectValue placeholder="Choose the AI provider to use" />
-              </SelectTrigger>
-              <SelectContent className="border-[#1F2937] bg-[#111827] text-white">
-                {providers.length > 0 ? providers.map((provider) => (
-                  <SelectItem key={provider.provider} value={provider.provider}>
-                    <div className="flex flex-col">
-                      <span>{providerLabel(provider.provider)}</span>
-                      <span className="text-[11px] text-[#6B7280]">
-                        {provider.selectedModel || "Connected"}
-                      </span>
-                    </div>
-                  </SelectItem>
-                )) : (
-                  <SelectItem value="__no_provider" disabled>
-                    No connected AI providers
-                  </SelectItem>
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-4">
-              <p className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-[#4F8CFF]">
-                <Sparkles className="h-4 w-4" />
-                Included Inputs
-              </p>
-              <ul className="space-y-1.5 text-[12px] text-[#D1D5DB]">
-                <li>• Up to two selected AI-enabled resume profiles</li>
-                <li>• Optional Legacy Preferences profile</li>
-                <li>• Job title, description, and requirements</li>
-                <li>• Global AI rules and formatting settings</li>
-              </ul>
-            </div>
-            <div className="rounded-lg border border-[#1F2937] bg-[#0B0F14] p-4">
-              <p className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-[#4F8CFF]">
-                <Brain className="h-4 w-4" />
-                Goal
-              </p>
-              <p className="text-[12px] leading-relaxed text-[#D1D5DB]">
-                Generate a high-quality, approval-ready tailored resume that improves ATS alignment without inventing experience or metrics.
-              </p>
+              </div>
             </div>
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t border-[#1F2937] bg-[#111827] px-5 py-4 sm:px-6">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

@@ -72,9 +72,21 @@ export interface JobMatch {
     lastModified: string;
     resumeType?: "master" | "tailored";
   };
+  linkedCoverLetter?: {
+    id: string;
+    title: string;
+    lastModified: string;
+  };
   notes?: string;
   postedAt?: string;
   createdAt: string;
+  rawData?: Record<string, unknown>;
+  workArrangement?: string;
+  workLocation?: string;
+  companyAddress?: string;
+  paymentType?: string;
+  compensationText?: string;
+  isContract?: boolean;
 }
 
 export interface ConnectorConfig {
@@ -143,6 +155,11 @@ export interface ResultsQuery {
   tier?: string;
   status?: string;
   profileId?: string;
+  source?: string;
+  sort?: "match" | "recent" | "oldest" | "score-high" | "score-low";
+  scoreMin?: number;
+  scoreMax?: number;
+  createdWithinHours?: number;
   limit?: number;
   offset?: number;
 }
@@ -152,6 +169,11 @@ export const getResults = (q: ResultsQuery = {}) => {
   if (q.tier) params.set("tier", q.tier);
   if (q.status) params.set("status", q.status);
   if (q.profileId) params.set("profileId", q.profileId);
+  if (q.source) params.set("source", q.source);
+  if (q.sort) params.set("sort", q.sort);
+  if (q.scoreMin != null) params.set("scoreMin", String(q.scoreMin));
+  if (q.scoreMax != null) params.set("scoreMax", String(q.scoreMax));
+  if (q.createdWithinHours != null) params.set("createdWithinHours", String(q.createdWithinHours));
   if (q.limit) params.set("limit", String(q.limit));
   if (q.offset) params.set("offset", String(q.offset));
   const qs = params.toString();
@@ -226,6 +248,7 @@ export const generateResumeWithSelection = (
     profileIds?: string[];
     useLegacyPreferences?: boolean;
     provider?: "openai" | "anthropic";
+    customRole?: string;
   }
 ) =>
   api.post<{
@@ -240,5 +263,25 @@ export const generateResumeWithSelection = (
     };
   }>(
     `/agent/results/${matchId}/generate-resume`,
+    data
+  );
+
+export const generateCoverLetter = (
+  matchId: string,
+  data: {
+    provider?: "openai" | "anthropic";
+  } = {}
+) =>
+  api.post<{
+    documentId: string;
+    title: string;
+    message: string;
+    coverLetter?: {
+      id: string;
+      title: string;
+      lastModified: string;
+    };
+  }>(
+    `/agent/results/${matchId}/generate-cover-letter`,
     data
   );

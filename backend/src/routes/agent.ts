@@ -12,12 +12,17 @@ import { requireAuth } from "../middleware/auth";
 import { pool } from "../db/pool";
 import { runPipeline, PipelineProfile } from "../services/pipeline";
 import { fetchImportedJobDetails } from "../services/import-metadata";
+import { buildNormalizedJobMeta, normalizeJobType } from "../services/connectors/base";
 import { buildAiPreferenceNotes, buildAiSystemPrompt, getGlobalAiSettings } from "../services/ai-global-settings";
-import { getDefaultMasterResumeContext, getLegacyResumePreferencesContext, getMasterResumeContextForProfiles, getMasterResumeProfile } from "../services/master-resume";
+import { getAiConnection, type AiProvider as ResumeAiProvider } from "../services/ai-client";
+import {
+  getAiResumeSourceContext,
+  getMasterResumeProfiles,
+  type MasterResumeProfileAggregate,
+} from "../services/master-resume";
 import { scoreJobWithAi } from "../services/ai-scorer";
 import { markdownToPlainText, renderResumeHtml } from "../services/resume-renderer";
 import { scoreMasterResume } from "../services/master-resume-score";
-import { decrypt } from "../utils/encryption";
 
 const router = Router();
 router.use(requireAuth);
@@ -72,6 +77,73 @@ function normalizeOptionalNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeLimit(value: unknown, fallback: number, max: number): number {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+}
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function recommendResumeProfilesForJob(
+  job: Record<string, unknown>,
+  profiles: MasterResumeProfileAggregate[],
+  limit: number
+) {
+  const aiProfiles = profiles.filter((profile) => profile.isActive && profile.useForAi);
+  const activeProfiles = profiles.filter((profile) => profile.isActive);
+  const candidateProfiles =
+    (aiProfiles.length > 0 ? aiProfiles : activeProfiles.length > 0 ? activeProfiles : profiles).slice(0, 20);
+
+  const jobTitle = typeof job.title === "string" ? job.title : "";
+  const jobDescription = typeof job.description === "string" ? job.description : "";
+
+  return candidateProfiles
+    .map((profile) => {
+      const score = scoreMasterResume({
+        name: profile.name,
+        targetRoles: profile.targetRoles,
+        summary: profile.summary,
+        experienceYears: profile.experienceYears,
+        experiences: profile.experiences,
+        skills: profile.skills,
+        education: profile.education,
+        projects: profile.projects,
+        leadership: profile.leadership,
+        jobTitle,
+        jobDescription,
+      });
+
+      const fitScore = clampScore(
+        score.atsScore * 0.35 +
+        score.mqMatch.matchScore * 0.35 +
+        score.impactScore * 0.15 +
+        score.completenessScore * 0.15
+      );
+
+      return {
+        id: profile.id,
+        name: profile.name,
+        summary: profile.summary ?? "",
+        targetRoles: profile.targetRoles.slice(0, 3),
+        fitScore,
+        atsScore: score.atsScore,
+        mqScore: score.mqMatch.matchScore,
+        impactScore: score.impactScore,
+        completenessScore: score.completenessScore,
+        matchedSkills: score.mqMatch.matchedSkills.slice(0, 5),
+        missingSkills: score.mqMatch.missingSkills.slice(0, 4),
+        suggestions: score.suggestions.slice(0, 3),
+        isDefault: profile.isDefault,
+        useForAi: profile.useForAi,
+      };
+    })
+    .sort((a, b) => b.fitScore - a.fitScore || b.atsScore - a.atsScore || a.name.localeCompare(b.name))
+    .slice(0, limit);
+}
+
 function nextRunAt(schedule: unknown, scheduleIntervalMinutes: unknown, isActive: unknown): Date | null {
   if (!isActive) return null;
 
@@ -104,36 +176,13 @@ function nextRunAt(schedule: unknown, scheduleIntervalMinutes: unknown, isActive
   return next;
 }
 
-type ResumeAiProvider = "openai" | "anthropic";
-
 async function getResumeAiConnection(userId: string, requestedProvider?: unknown) {
-  const provider: ResumeAiProvider = requestedProvider === "anthropic" ? "anthropic" : "openai";
-  const { rows } = await pool.query<{
-    encrypted_key: string;
-    encryption_iv: string;
-    encryption_tag: string;
-    selected_model: string | null;
-  }>(
-    `SELECT encrypted_key, encryption_iv, encryption_tag, selected_model
-     FROM ai_provider_connections
-     WHERE user_id = $1 AND provider = $2 AND is_connected = true
-     LIMIT 1`,
-    [userId, provider]
+  return getAiConnection(
+    userId,
+    requestedProvider === "anthropic" || requestedProvider === "openai"
+      ? requestedProvider
+      : undefined
   );
-
-  if (!rows[0]?.encrypted_key) {
-    throw new Error(`No ${provider === "openai" ? "OpenAI" : "Anthropic"} API key connected.`);
-  }
-
-  return {
-    provider,
-    apiKey: decrypt({
-      encrypted: rows[0].encrypted_key,
-      iv: rows[0].encryption_iv,
-      tag: rows[0].encryption_tag,
-    }),
-    model: rows[0].selected_model ?? (provider === "openai" ? "gpt-4o-mini" : "claude-sonnet-4-6"),
-  };
 }
 
 async function runResumeGeneration(params: {
@@ -559,6 +608,11 @@ router.post("/profiles/:id/run", async (req, res) => {
               jobType:     jobRow.job_type,
               salaryMin:   jobRow.salary_min,
               salaryMax:   jobRow.salary_max,
+              workArrangement: jobRow.raw_data?.jobMeta?.workArrangement,
+              companyAddress: jobRow.raw_data?.jobMeta?.companyAddress,
+              paymentType: jobRow.raw_data?.jobMeta?.paymentType,
+              compensationText: jobRow.raw_data?.jobMeta?.compensationText,
+              isContract: typeof jobRow.raw_data?.jobMeta?.isContract === "boolean" ? jobRow.raw_data.jobMeta.isContract : undefined,
             });
 
             if (outcome.ok) {
@@ -658,9 +712,20 @@ router.put("/connectors/:connector", async (req, res) => {
 
 /* ══════════════════════════════ Results ══════════════════════════════════ */
 
-// GET /api/agent/results?tier=strong&status=new&profileId=...&limit=50&offset=0
+// GET /api/agent/results?tier=strong&status=new&profileId=...&source=extension&sort=recent&scoreMin=70&createdWithinHours=24&limit=50&offset=0
 router.get("/results", async (req, res) => {
-  const { tier, status, profileId, limit = "50", offset = "0" } = req.query as Record<string, string>;
+  const {
+    tier,
+    status,
+    profileId,
+    source,
+    sort,
+    scoreMin,
+    scoreMax,
+    createdWithinHours,
+    limit = "50",
+    offset = "0",
+  } = req.query as Record<string, string>;
 
   const where: string[] = ["jm.user_id = $1"];
   const params: unknown[] = [req.userId];
@@ -669,6 +734,13 @@ router.get("/results", async (req, res) => {
   if (tier) { where.push(`jm.match_tier = $${i++}`); params.push(tier); }
   if (status) { where.push(`jm.status = $${i++}`); params.push(status); }
   if (profileId) { where.push(`jm.profile_id = $${i++}`); params.push(profileId); }
+  if (source) { where.push(`jm.source = $${i++}`); params.push(source); }
+  if (scoreMin != null && scoreMin !== "") { where.push(`COALESCE(jm.ai_score, 0) >= $${i++}`); params.push(Number(scoreMin)); }
+  if (scoreMax != null && scoreMax !== "") { where.push(`COALESCE(jm.ai_score, 0) <= $${i++}`); params.push(Number(scoreMax)); }
+  if (createdWithinHours != null && createdWithinHours !== "") {
+    where.push(`jm.created_at >= now() - ($${i++}::int * interval '1 hour')`);
+    params.push(Number(createdWithinHours));
+  }
 
   try {
     const { rows: countRows } = await pool.query(
@@ -677,13 +749,23 @@ router.get("/results", async (req, res) => {
     );
 
     params.push(parseInt(limit), parseInt(offset));
+    const orderBy =
+      sort === "recent" ? "jm.created_at DESC"
+      : sort === "oldest" ? "jm.created_at ASC"
+      : sort === "score-low" ? "jm.ai_score ASC NULLS LAST, jm.created_at DESC"
+      : sort === "score-high" ? "jm.ai_score DESC NULLS LAST, jm.created_at DESC"
+      : "jm.ai_score DESC NULLS LAST, jm.created_at DESC";
+
     const { rows } = await pool.query(
       `SELECT jm.*,
               sp.name AS profile_name,
               rd.id AS resume_id,
               rd.title AS resume_title,
               rd.updated_at AS resume_updated_at,
-              rd.resume_type AS resume_type
+              rd.resume_type AS resume_type,
+              cd.id AS cover_letter_id,
+              cd.title AS cover_letter_title,
+              cd.updated_at AS cover_letter_updated_at
        FROM job_matches jm
        LEFT JOIN search_profiles sp ON sp.id = jm.profile_id
        LEFT JOIN LATERAL (
@@ -696,8 +778,17 @@ router.get("/results", async (req, res) => {
          ORDER BY d.updated_at DESC
          LIMIT 1
        ) rd ON true
+       LEFT JOIN LATERAL (
+         SELECT d.id, d.title, d.updated_at
+         FROM documents d
+         WHERE d.user_id = jm.user_id
+           AND d.kind = 'cover_letter'
+           AND d.metadata->>'jobMatchId' = jm.id::text
+         ORDER BY d.updated_at DESC
+         LIMIT 1
+       ) cd ON true
        WHERE ${where.join(" AND ")}
-       ORDER BY jm.ai_score DESC NULLS LAST, jm.created_at DESC
+       ORDER BY ${orderBy}
        LIMIT $${i} OFFSET $${i + 1}`,
       params
     );
@@ -718,7 +809,10 @@ router.get("/results/:id", async (req, res) => {
               rd.id AS resume_id,
               rd.title AS resume_title,
               rd.updated_at AS resume_updated_at,
-              rd.resume_type AS resume_type
+              rd.resume_type AS resume_type,
+              cd.id AS cover_letter_id,
+              cd.title AS cover_letter_title,
+              cd.updated_at AS cover_letter_updated_at
        FROM job_matches jm
        LEFT JOIN search_profiles sp ON sp.id = jm.profile_id
        LEFT JOIN LATERAL (
@@ -731,6 +825,15 @@ router.get("/results/:id", async (req, res) => {
          ORDER BY d.updated_at DESC
          LIMIT 1
        ) rd ON true
+       LEFT JOIN LATERAL (
+         SELECT d.id, d.title, d.updated_at
+         FROM documents d
+         WHERE d.user_id = jm.user_id
+           AND d.kind = 'cover_letter'
+           AND d.metadata->>'jobMatchId' = jm.id::text
+         ORDER BY d.updated_at DESC
+         LIMIT 1
+       ) cd ON true
        WHERE jm.id = $1 AND jm.user_id = $2
        LIMIT 1`,
       [req.params.id, req.userId]
@@ -744,6 +847,39 @@ router.get("/results/:id", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to load job." });
+  }
+});
+
+// GET /api/agent/results/:id/resume-profiles
+router.get("/results/:id/resume-profiles", async (req, res) => {
+  const limit = normalizeLimit(req.query.limit, 3, 6);
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, title, company, description, location, remote, source_url, ai_score, match_tier, score_breakdown
+       FROM job_matches
+       WHERE id = $1 AND user_id = $2
+       LIMIT 1`,
+      [req.params.id, req.userId]
+    );
+
+    const job = rows[0];
+    if (!job) {
+      return res.status(404).json({ message: "Job not found." });
+    }
+
+    const profiles = await getMasterResumeProfiles(req.userId!);
+    const rankedProfiles = recommendResumeProfilesForJob(job, profiles, limit);
+
+    res.json({
+      jobId: job.id,
+      profiles: rankedProfiles,
+      totalProfilesConsidered: profiles.length,
+      usingAiProfilesOnly: profiles.some((profile) => profile.isActive && profile.useForAi),
+    });
+  } catch (err) {
+    console.error("[agent/results/:id/resume-profiles]", err);
+    res.status(500).json({ message: "Failed to load related resume profiles." });
   }
 });
 
@@ -816,6 +952,10 @@ router.post("/import", async (req, res) => {
     description,
     location,
     remote,
+    jobType,
+    salaryMin,
+    salaryMax,
+    rawData: clientRawData,
     externalId: clientExternalId,
   } = req.body;
 
@@ -860,12 +1000,34 @@ router.post("/import", async (req, res) => {
       ? remote
       : imported?.remote ?? false;
   const resolvedRequirements = imported?.requirements ?? [];
-  const resolvedJobType = imported?.jobType ?? null;
-  const resolvedSalaryMin = imported?.salaryMin ?? null;
-  const resolvedSalaryMax = imported?.salaryMax ?? null;
+  const resolvedJobType =
+    normalizeJobType(typeof jobType === "string" ? jobType : undefined) ??
+    normalizeJobType(imported?.jobType) ??
+    null;
+  const resolvedSalaryMin =
+    typeof salaryMin === "number" && Number.isFinite(salaryMin)
+      ? Math.round(salaryMin)
+      : imported?.salaryMin ?? null;
+  const resolvedSalaryMax =
+    typeof salaryMax === "number" && Number.isFinite(salaryMax)
+      ? Math.round(salaryMax)
+      : imported?.salaryMax ?? null;
   const resolvedPostedAt = imported?.postedAt ?? null;
   const resolvedSourceUrl = imported?.sourceUrl ?? sourceUrl ?? null;
-  const rawData = imported?.rawData ?? {};
+  const rawData = buildNormalizedJobMeta({
+    title: resolvedTitle,
+    company: resolvedCompany,
+    location: resolvedLocation,
+    remote: resolvedRemote,
+    jobType: resolvedJobType,
+    description: resolvedDescription,
+    salaryMin: resolvedSalaryMin,
+    salaryMax: resolvedSalaryMax,
+    rawData: {
+      ...(imported?.rawData ?? {}),
+      ...(clientRawData && typeof clientRawData === "object" ? clientRawData as Record<string, unknown> : {}),
+    },
+  });
 
   // Use client-provided externalId for deduplication (e.g. indeed_jk, linkedin_jobid)
   // or fall back to a random unique string
@@ -938,6 +1100,14 @@ router.post("/import", async (req, res) => {
           jobType: saved.job_type,
           salaryMin: saved.salary_min,
           salaryMax: saved.salary_max,
+          workArrangement: (saved.raw_data?.jobMeta?.workArrangement as string | undefined) ?? undefined,
+          companyAddress: (saved.raw_data?.jobMeta?.companyAddress as string | undefined) ?? undefined,
+          paymentType: (saved.raw_data?.jobMeta?.paymentType as string | undefined) ?? undefined,
+          compensationText: (saved.raw_data?.jobMeta?.compensationText as string | undefined) ?? undefined,
+          isContract:
+            typeof saved.raw_data?.jobMeta?.isContract === "boolean"
+              ? (saved.raw_data.jobMeta.isContract as boolean)
+              : undefined,
         });
         if (!outcome.ok) {
           // Mark as scored-with-error so the UI stops polling and shows the message
@@ -1002,12 +1172,23 @@ router.post("/results/:id/generate-resume", async (req, res) => {
               .map((value: unknown) => (typeof value === "string" ? value.trim() : ""))
               .filter(Boolean)
           )
-        ).slice(0, 2)
+        )
       : typeof req.body?.profileId === "string" && req.body.profileId.trim()
         ? [req.body.profileId.trim()]
         : [];
-    const useLegacyPreferences = Boolean(req.body?.useLegacyPreferences);
+    const useLegacyPreferences = typeof req.body?.useLegacyPreferences === "boolean"
+      ? req.body.useLegacyPreferences
+      : undefined;
+    const selectedCustomRole =
+      typeof req.body?.customRole === "string" && req.body.customRole.trim()
+        ? req.body.customRole.trim()
+        : undefined;
     const { provider, apiKey, model } = await getResumeAiConnection(req.userId!, req.body?.provider);
+
+    const effectiveCustomRole =
+      selectedCustomRole && globalAi.aiCustomRoles.includes(selectedCustomRole)
+        ? selectedCustomRole
+        : undefined;
 
     // 3. Load resume_preferences + user_profiles + user_skills
     const { rows: prefRows } = await pool.query<Record<string, unknown>>(
@@ -1076,9 +1257,6 @@ router.post("/results/:id/generate-resume", async (req, res) => {
     if (Array.isArray(prefs.soft_skills) && (prefs.soft_skills as string[]).length > 0) {
       candidateLines.push(`Soft skills: ${(prefs.soft_skills as string[]).join(", ")}`);
     }
-    if (requestedProfileIds.length > 2) {
-      return res.status(400).json({ message: "Select up to two resume profiles." });
-    }
     if (requestedProfileIds.length > 0) {
       const { rows: eligibleProfiles } = await pool.query<{ id: string }>(
         `SELECT p.id
@@ -1095,21 +1273,24 @@ router.post("/results/:id/generate-resume", async (req, res) => {
       }
     }
 
-    const selectedProfilesContext = requestedProfileIds.length > 0
-      ? await getMasterResumeContextForProfiles(req.userId!, requestedProfileIds)
-      : null;
-    if (requestedProfileIds.length > 0 && !selectedProfilesContext) {
-      return res.status(404).json({ message: "Selected resume profiles were not found." });
+    const resumeLibrary = await getAiResumeSourceContext(req.userId!, {
+      preferredProfileIds: requestedProfileIds,
+      includeLegacy: useLegacyPreferences,
+      maxChars: 14000,
+    });
+    const masterResumeContext = resumeLibrary.context;
+    if (!masterResumeContext) {
+      return res.status(400).json({
+        message: "Activate at least one resume profile with AI enabled in Master Resume before generating a tailored resume.",
+      });
     }
-    const legacyContext = useLegacyPreferences ? await getLegacyResumePreferencesContext(req.userId!) : null;
-    const explicitContext = [selectedProfilesContext, legacyContext]
-      .filter((item): item is string => Boolean(item?.trim()))
-      .join("\n\n===\n\n");
-    const masterResumeContext = explicitContext || await getDefaultMasterResumeContext(req.userId!);
     if (masterResumeContext) {
-      candidateLines.push(`Structured master resume context:\n${masterResumeContext.slice(0, 5000)}`);
+      candidateLines.push(`Structured active resume library:\n${masterResumeContext.slice(0, 9000)}`);
     }
     candidateLines.push(...buildAiPreferenceNotes(globalAi));
+    if (effectiveCustomRole) {
+      candidateLines.push(`Selected custom AI role for this run: ${effectiveCustomRole}`);
+    }
 
     const reqList = Array.isArray(job.requirements)
       ? (job.requirements as string[]).slice(0, 12).map((r: string) => `- ${r}`).join("\n")
@@ -1119,34 +1300,29 @@ router.post("/results/:id/generate-resume", async (req, res) => {
       : "";
 
     let resumeScore = Number(job.ai_score ?? 0);
-    if (requestedProfileIds.length > 0) {
-      const selectedProfiles = await Promise.all(
-        requestedProfileIds.map((profileId) => getMasterResumeProfile(req.userId!, profileId))
-      );
-      const validProfiles = selectedProfiles.filter((profile): profile is NonNullable<typeof profile> => Boolean(profile));
-      if (validProfiles.length > 0) {
-        const profileScores = validProfiles.map((profile) => {
-          const result = scoreMasterResume({
-            name: profile.name,
-            targetRoles: profile.targetRoles,
-            summary: profile.summary,
-            experienceYears: profile.experienceYears,
-            experiences: profile.experiences,
-            skills: profile.skills,
-            projects: profile.projects,
-            leadership: profile.leadership ? {
-              teamSize: profile.leadership.teamSize ?? null,
-              scope: profile.leadership.scope ?? "",
-              stakeholders: profile.leadership.stakeholders,
-              budget: profile.leadership.budget ?? "",
-            } : null,
-            jobTitle: typeof job.title === "string" ? job.title : "",
-            jobDescription: [desc, reqList].filter(Boolean).join("\n"),
-          });
-          return Math.round((result.atsScore * 0.45) + (result.mqMatch.matchScore * 0.35) + (result.impactScore * 0.2));
+    if (resumeLibrary.profiles.length > 0) {
+      const profileScores = resumeLibrary.profiles.map((profile) => {
+        const result = scoreMasterResume({
+          name: profile.name,
+          targetRoles: profile.targetRoles,
+          summary: profile.summary,
+          experienceYears: profile.experienceYears,
+          experiences: profile.experiences,
+          skills: profile.skills,
+          education: profile.education,
+          projects: profile.projects,
+          leadership: profile.leadership ? {
+            teamSize: profile.leadership.teamSize ?? null,
+            scope: profile.leadership.scope ?? "",
+            stakeholders: profile.leadership.stakeholders,
+            budget: profile.leadership.budget ?? "",
+          } : null,
+          jobTitle: typeof job.title === "string" ? job.title : "",
+          jobDescription: [desc, reqList].filter(Boolean).join("\n"),
         });
-        resumeScore = Math.round(profileScores.reduce((sum, score) => sum + score, 0) / profileScores.length);
-      }
+        return Math.round((result.atsScore * 0.45) + (result.mqMatch.matchScore * 0.35) + (result.impactScore * 0.2));
+      });
+      resumeScore = Math.round(profileScores.reduce((sum, score) => sum + score, 0) / profileScores.length);
     }
 
     const resumePrompt = `You are an expert resume writer. Generate a complete, ATS-optimized tailored resume in markdown format.
@@ -1163,7 +1339,9 @@ Requirements:
 ${reqList}
 
 Instructions:
-- Use the selected resume profile plus the job description together to maximize ATS alignment and overall fit
+- Use the full active AI-enabled resume library plus the job description together to maximize ATS alignment and overall fit
+- Ignore any deactivated resume profiles entirely
+- Treat the structured active resume library as the primary source of truth for experience, achievements, education, and skills
 - Use the candidate profile details exactly as provided for the resume header/contact section
 - Write a tailored professional summary (3-4 sentences) for THIS specific role
 - List the most relevant skills prominently
@@ -1184,10 +1362,13 @@ Return ONLY the markdown resume, no explanation.`;
       provider,
       apiKey,
       model,
-      systemPrompt: buildAiSystemPrompt(
-        "You are an expert resume writer. Return only clean markdown.",
-        globalAi
-      ),
+      systemPrompt: [
+        buildAiSystemPrompt(
+          "You are an expert resume writer. Return only clean markdown.",
+          globalAi
+        ),
+        effectiveCustomRole ? `For this request, strongly emphasize this selected custom AI role: ${effectiveCustomRole}.` : null,
+      ].filter(Boolean).join("\n\n"),
       resumePrompt,
     });
 
@@ -1213,8 +1394,10 @@ Return ONLY the markdown resume, no explanation.`;
       tier: job.match_tier,
       provider,
       model,
-      selectedProfileIds: requestedProfileIds,
-      usedLegacyPreferences: useLegacyPreferences,
+      selectedProfileIds: resumeLibrary.profileIds,
+      requestedProfileIds,
+      selectedCustomRole: effectiveCustomRole ?? null,
+      usedLegacyPreferences: resumeLibrary.usedLegacy,
       resumeScore,
       formatting: {
         titleFont: globalAi.resumeTitleFont,
@@ -1259,6 +1442,180 @@ Return ONLY the markdown resume, no explanation.`;
   } catch (err) {
     console.error("[generate-resume]", (err as Error).message);
     res.status(500).json({ message: `Failed to generate resume: ${(err as Error).message}` });
+  }
+});
+
+/* ═════════════════════ Generate Cover Letter ════════════════════════════ */
+
+router.post("/results/:id/generate-cover-letter", async (req, res) => {
+  const matchId = req.params.id;
+
+  try {
+    const { rows: matchRows } = await pool.query<Record<string, unknown>>(
+      `SELECT id, user_id, title, company, location, remote, job_type, description, requirements,
+              source_url, ai_score, match_tier, score_breakdown, profile_id
+       FROM job_matches
+       WHERE id = $1 AND user_id = $2
+       LIMIT 1`,
+      [matchId, req.userId]
+    );
+
+    const job = matchRows[0];
+    if (!job) {
+      return res.status(404).json({ message: "Job not found." });
+    }
+
+    const globalAi = await getGlobalAiSettings(req.userId!);
+    const { provider, apiKey, model } = await getResumeAiConnection(req.userId!, req.body?.provider);
+    const resumeLibrary = await getAiResumeSourceContext(req.userId!, {
+      includeLegacy: undefined,
+      maxChars: 14000,
+    });
+
+    if (!resumeLibrary.context) {
+      return res.status(400).json({
+        message: "Activate at least one resume profile with AI enabled in Master Resume before generating a cover letter.",
+      });
+    }
+
+    const { rows: profileRows } = await pool.query<Record<string, unknown>>(
+      `SELECT u.first_name, u.last_name, u.email, u.location_text,
+              u.current_job_title, u.linkedin_url,
+              up.professional_summary, up.years_experience
+       FROM account_users u
+       LEFT JOIN user_profiles up ON up.user_id = u.id
+       WHERE u.id = $1
+       LIMIT 1`,
+      [req.userId]
+    );
+    const profile = profileRows[0] ?? {};
+
+    const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
+    const candidateLines: string[] = [];
+    if (fullName) candidateLines.push(`Full name: ${fullName}`);
+    if (profile.email) candidateLines.push(`Email: ${profile.email}`);
+    if (profile.location_text) candidateLines.push(`Location: ${profile.location_text}`);
+    if (profile.current_job_title) candidateLines.push(`Current title: ${profile.current_job_title}`);
+    if (profile.linkedin_url) candidateLines.push(`LinkedIn: ${profile.linkedin_url}`);
+    if (profile.professional_summary) candidateLines.push(`Profile summary: ${profile.professional_summary}`);
+    if (profile.years_experience) candidateLines.push(`Years of experience: ${profile.years_experience}`);
+    candidateLines.push(`Active resume library:\n${resumeLibrary.context.slice(0, 9000)}`);
+    candidateLines.push(...buildAiPreferenceNotes(globalAi));
+
+    const reqList = Array.isArray(job.requirements)
+      ? (job.requirements as string[]).slice(0, 12).map((r: string) => `- ${r}`).join("\n")
+      : "";
+    const desc = typeof job.description === "string"
+      ? job.description.replace(/<[^>]+>/g, " ").slice(0, 2000)
+      : "";
+    const scoreBreakdown = job.score_breakdown && typeof job.score_breakdown === "object"
+      ? JSON.stringify(job.score_breakdown, null, 2)
+      : "";
+
+    const coverLetterPrompt = `You are an expert career strategist and executive resume writer. Write a persuasive, truthful, ATS-safe cover letter in markdown.
+
+CANDIDATE CONTEXT:
+${candidateLines.join("\n")}
+
+TARGET JOB:
+Title: ${job.title}
+Company: ${job.company ?? ""}
+Location: ${job.location ?? ""}
+Remote: ${job.remote ? "Yes" : "No"}
+Job type: ${job.job_type ?? ""}
+Source URL: ${job.source_url ?? ""}
+Fit score: ${job.ai_score ?? "Not scored"}
+Match tier: ${job.match_tier ?? "Unknown"}
+Job description:
+${desc || "Not provided"}
+
+Requirements:
+${reqList || "Not provided"}
+
+Current job analysis:
+${scoreBreakdown || "Not available"}
+
+Instructions:
+- Use all active AI-enabled resume profiles as the candidate source of truth
+- Ignore deactivated resume profiles entirely
+- Follow the user's AI settings for tone, personalization, and safety rules
+- Write a role-specific cover letter for this exact job
+- Highlight the most relevant experience, strengths, and outcomes from the candidate context
+- Do not invent employers, achievements, metrics, dates, or credentials
+- Keep the letter concise, natural, and client-ready
+- Output clean markdown only, with greeting, body paragraphs, and a closing signature
+- Do not use placeholders like [Your Name] or [Company Name]; use the available candidate and job details directly when known`;
+
+    const rawMarkdown = await runResumeGeneration({
+      provider,
+      apiKey,
+      model,
+      systemPrompt: buildAiSystemPrompt(
+        "You are an expert cover letter writer. Return only clean markdown.",
+        globalAi
+      ),
+      resumePrompt: coverLetterPrompt,
+    });
+
+    const contentText = markdownToPlainText(rawMarkdown);
+    const escapeHtml = (value: string) =>
+      value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    const contentHtml = rawMarkdown
+      .split(/\n{2,}/)
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .map((block) => `<p>${escapeHtml(block).replace(/\n/g, "<br />")}</p>`)
+      .join("");
+    const docTitle = String(job.title || "Cover Letter");
+    const metadata = JSON.stringify({
+      jobMatchId: matchId,
+      jobTitle: job.title,
+      company: job.company,
+      location: job.location,
+      provider,
+      model,
+      profileIds: resumeLibrary.profileIds,
+      profileNames: resumeLibrary.profileNames,
+      usedLegacyPreferences: resumeLibrary.usedLegacy,
+      formatting: {
+        tone: globalAi.coverLetterTone,
+        length: globalAi.coverLetterLength,
+        personalization: globalAi.coverLetterPersonalization,
+      },
+    });
+
+    const { rows: docRows } = await pool.query(
+      `INSERT INTO documents (user_id, kind, origin, title, content_text, content_html, metadata)
+       VALUES ($1, 'cover_letter', 'ai_generated', $2, $3, $4, $5::jsonb)
+       RETURNING id`,
+      [req.userId, docTitle, contentText, contentHtml, metadata]
+    );
+    const documentId = docRows[0].id as string;
+
+    await pool.query(
+      `INSERT INTO document_versions (document_id, version_no, content_text, content_html)
+       VALUES ($1, 1, $2, $3)`,
+      [documentId, contentText, contentHtml]
+    );
+
+    res.json({
+      documentId,
+      title: docTitle,
+      coverLetter: {
+        id: documentId,
+        title: docTitle,
+        lastModified: new Date().toISOString(),
+      },
+      message: `Cover letter generated with ${provider === "openai" ? "OpenAI" : "Anthropic"} and saved to Cover Letters.`,
+    });
+  } catch (err) {
+    console.error("[generate-cover-letter]", (err as Error).message);
+    res.status(500).json({ message: `Failed to generate cover letter: ${(err as Error).message}` });
   }
 });
 
@@ -1381,6 +1738,15 @@ function toProfile(r: Record<string, unknown>) {
 }
 
 function toMatch(r: Record<string, unknown>) {
+  const rawData =
+    r.raw_data && typeof r.raw_data === "object"
+      ? (r.raw_data as Record<string, unknown>)
+      : undefined;
+  const jobMeta =
+    rawData?.jobMeta && typeof rawData.jobMeta === "object"
+      ? (rawData.jobMeta as Record<string, unknown>)
+      : undefined;
+
   return {
     id: r.id,
     profileId: r.profile_id,
@@ -1404,11 +1770,23 @@ function toMatch(r: Record<string, unknown>) {
     scoredAt: r.scored_at,
     status: r.status,
     resumeGenerated: r.resume_generated,
+    rawData,
+    workArrangement: typeof jobMeta?.workArrangement === "string" ? jobMeta.workArrangement : undefined,
+    companyAddress: typeof jobMeta?.companyAddress === "string" ? jobMeta.companyAddress : undefined,
+    workLocation: typeof jobMeta?.workLocation === "string" ? jobMeta.workLocation : undefined,
+    paymentType: typeof jobMeta?.paymentType === "string" ? jobMeta.paymentType : undefined,
+    compensationText: typeof jobMeta?.compensationText === "string" ? jobMeta.compensationText : undefined,
+    isContract: typeof jobMeta?.isContract === "boolean" ? jobMeta.isContract : undefined,
     linkedResume: r.resume_id ? {
       id: r.resume_id,
       title: r.resume_title,
       lastModified: r.resume_updated_at,
       resumeType: r.resume_type,
+    } : undefined,
+    linkedCoverLetter: r.cover_letter_id ? {
+      id: r.cover_letter_id,
+      title: r.cover_letter_title,
+      lastModified: r.cover_letter_updated_at,
     } : undefined,
     notes: r.notes,
     postedAt: r.posted_at,
