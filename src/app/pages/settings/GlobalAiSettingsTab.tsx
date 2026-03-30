@@ -146,11 +146,11 @@ const ACCENT_COLORS = [
 ] as const;
 
 const TEMPLATE_OPTIONS = [
-  { value: "modern", label: "Modern", blurb: "Balanced accent-first layout." },
-  { value: "classic", label: "Classic", blurb: "Traditional serif-forward format." },
-  { value: "compact", label: "Compact", blurb: "Dense layout for maximum content." },
-  { value: "product-owner", label: "Product Owner", blurb: "Inspired by the Uneekor product-owner resume." },
-  { value: "wordpress-operator", label: "WordPress Operator", blurb: "Inspired by the LowCostPetVax technical operations resume." },
+  { value: "modern", label: "Template 1", blurb: "Balanced accent-first layout." },
+  { value: "classic", label: "Template 2", blurb: "Traditional serif-forward format." },
+  { value: "compact", label: "Template 3", blurb: "Dense layout for maximum content." },
+  { value: "product-owner", label: "Template 4", blurb: "Bold product-focused layout." },
+  { value: "wordpress-operator", label: "Template 5", blurb: "Technical operations layout." },
 ] as const;
 
 function isHexColor(value: string): boolean {

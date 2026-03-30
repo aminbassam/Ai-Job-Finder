@@ -29,13 +29,25 @@ const MODELS: Record<string, { value: string; label: string; recommended?: boole
   ],
 };
 
-const PROVIDERS: { id: "openai" | "anthropic"; name: string; description: string; keyPrefix: string; placeholder: string }[] = [
+const PROVIDERS: {
+  id: "openai" | "anthropic";
+  name: string;
+  description: string;
+  keyPrefix: string;
+  placeholder: string;
+  helpUrl: string;
+  helpLabel: string;
+  helpText: string;
+}[] = [
   {
     id:          "openai",
     name:        "OpenAI (ChatGPT)",
     description: "GPT-4o for resume generation and job analysis",
     keyPrefix:   "sk-",
     placeholder: "sk-…",
+    helpUrl:     "https://help.openai.com/en/articles/4936850-how-to-create-and-use-an-api-key",
+    helpLabel:   "OpenAI API key help",
+    helpText:    "OpenAI says you can create a secret key from the API key page in the Developer Platform.",
   },
   {
     id:          "anthropic",
@@ -43,6 +55,9 @@ const PROVIDERS: { id: "openai" | "anthropic"; name: string; description: string
     description: "Claude for deep job matching and cover letters",
     keyPrefix:   "sk-ant-",
     placeholder: "sk-ant-…",
+    helpUrl:     "https://docs.anthropic.com/en/api/getting-started",
+    helpLabel:   "Anthropic API key help",
+    helpText:    "Anthropic says API keys are generated from Account Settings in the Console.",
   },
 ];
 
@@ -291,6 +306,17 @@ function ProviderCard({
                 {fieldError}
               </p>
             )}
+            <p className="mt-2 text-[11px] leading-relaxed text-[#6B7280]">
+              {def.helpText}{" "}
+              <a
+                href={def.helpUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[#4F8CFF] hover:text-[#93C5FD]"
+              >
+                {def.helpLabel}
+              </a>
+            </p>
           </div>
 
           <Button

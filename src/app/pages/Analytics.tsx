@@ -1,4 +1,4 @@
-import { TrendingUp, Target, Briefcase, Send } from "lucide-react";
+import { TrendingUp, Target, Briefcase, Send, AlertTriangle } from "lucide-react";
 import { Card } from "../components/ui/card";
 import { StatCard } from "../components/shared/StatCard";
 import { mockAnalyticsData } from "../data/mockData";
@@ -29,6 +29,12 @@ export function Analytics() {
         <p className="text-[14px] text-[#9CA3AF]">
           Track your job search performance and insights
         </p>
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-4 py-3 text-[13px] text-[#FCD34D]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            Analytics is currently showing mock data while the live reporting pipeline is being completed.
+          </p>
+        </div>
       </div>
 
       {/* Top Stats */}

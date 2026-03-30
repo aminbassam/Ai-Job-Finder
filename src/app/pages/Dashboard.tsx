@@ -1,4 +1,4 @@
-import { Briefcase, Target, FileText, Send, TrendingUp, Sparkles, Clock } from "lucide-react";
+import { Briefcase, Target, FileText, Send, TrendingUp, Sparkles, Clock, AlertTriangle } from "lucide-react";
 import { Link } from "react-router";
 import { StatCard } from "../components/shared/StatCard";
 import { Card } from "../components/ui/card";
@@ -36,6 +36,12 @@ export function Dashboard() {
         <p className="text-[14px] text-[#9CA3AF]">
           Welcome back! Here's what's happening with your job search.
         </p>
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#F59E0B]/20 bg-[#F59E0B]/10 px-4 py-3 text-[13px] text-[#FCD34D]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            Dashboard data is currently mock data for layout preview. Live account metrics and activity will be completed soon.
+          </p>
+        </div>
       </div>
 
       {/* Stats Grid */}
