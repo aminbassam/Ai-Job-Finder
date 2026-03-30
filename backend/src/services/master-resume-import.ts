@@ -601,6 +601,8 @@ export function normalizeImportedResumeToProfile(parsed: ParsedResumeJson, fallb
       .map((section): MasterResumeCustomSectionInput => ({
         name: section.name.trim(),
         description: typeof section.description === "string" ? section.description.trim() : "",
+        tools: [],
+        keywords: [],
       })),
     isDefault: false,
   };

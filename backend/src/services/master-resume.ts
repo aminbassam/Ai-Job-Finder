@@ -12,6 +12,8 @@ export interface MasterResumeCustomSectionInput {
   id?: string;
   name: string;
   description: string;
+  tools?: string[];
+  keywords?: string[];
 }
 
 export interface MasterResumeExperienceInput {
@@ -131,6 +133,8 @@ export interface MasterResumeProfileAggregate {
     id: string;
     name: string;
     description: string;
+    tools: string[];
+    keywords: string[];
   }>;
 }
 
@@ -341,12 +345,14 @@ export async function saveMasterResumeProfile(userId: string, input: MasterResum
     for (const [sectionIndex, section] of (input.customSections ?? []).entries()) {
       if (!section.name?.trim()) continue;
       await q(
-        `INSERT INTO master_resume_custom_sections (profile_id, name, description, sort_order)
-         VALUES ($1, $2, $3, $4)`,
+        `INSERT INTO master_resume_custom_sections (profile_id, name, description, tools, keywords, sort_order)
+         VALUES ($1, $2, $3, $4::text[], $5::text[], $6)`,
         [
           savedProfileId,
           section.name.trim(),
           section.description?.trim() ?? "",
+          dedupe(section.tools),
+          dedupe(section.keywords),
           sectionIndex,
         ]
       );
@@ -501,6 +507,8 @@ export async function getMasterResumeProfile(userId: string, profileId: string):
       id: String(section.id),
       name: String(section.name),
       description: (section.description as string | null) ?? "",
+      tools: (section.tools as string[] | null) ?? [],
+      keywords: (section.keywords as string[] | null) ?? [],
     })),
   };
 }
@@ -649,7 +657,10 @@ export async function getMasterResumeContextForProfile(userId: string, profileId
   }
 
   for (const section of aggregate.customSections.slice(0, 6)) {
-    lines.push(`${section.name}: ${section.description}`);
+    const sectionParts = [section.description];
+    if (section.tools.length > 0) sectionParts.push(`Tools: ${section.tools.join(", ")}`);
+    if (section.keywords.length > 0) sectionParts.push(`Keywords: ${section.keywords.join(", ")}`);
+    lines.push(`${section.name}: ${sectionParts.filter(Boolean).join(" | ")}`);
   }
 
   return lines.filter(Boolean).join("\n");

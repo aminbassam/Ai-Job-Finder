@@ -49,7 +49,7 @@ function emptyBullet(): MasterResumeBullet {
 }
 
 function emptyCustomSection(): MasterResumeCustomSection {
-  return { name: "", description: "" };
+  return { name: "", description: "", tools: [], keywords: [] };
 }
 
 function emptyExperience(): MasterResumeExperience {
@@ -1191,6 +1191,16 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
                       placeholder="Add details for this section…"
                       className="border-[#1F2937] bg-[#111827] text-white"
                     />
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Tools</Label>
+                      <TagInput tags={section.tools ?? []} onChange={(tags) => updateCustomSection(sectionIndex, { tools: tags })} />
+                    </div>
+                    <div>
+                      <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Keywords</Label>
+                      <TagInput tags={section.keywords ?? []} onChange={(tags) => updateCustomSection(sectionIndex, { keywords: tags })} />
+                    </div>
                   </div>
                 </div>
               </div>

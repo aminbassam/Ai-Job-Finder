@@ -11,6 +11,8 @@ export interface MasterResumeCustomSection {
   id?: string;
   name: string;
   description: string;
+  tools: string[];
+  keywords: string[];
 }
 
 export interface MasterResumeExperience {

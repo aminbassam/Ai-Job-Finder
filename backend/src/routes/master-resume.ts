@@ -26,6 +26,8 @@ const customSectionSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(200),
   description: z.string().max(10000).optional().or(z.literal("")),
+  tools: z.array(z.string().max(100)).default([]),
+  keywords: z.array(z.string().max(100)).default([]),
 });
 
 const experienceSchema = z.object({

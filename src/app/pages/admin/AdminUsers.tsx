@@ -85,6 +85,26 @@ function fmt(date: string | null) {
   return new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function fmtSignIn(date: string | null) {
+  if (!date) return "Never";
+  const d = new Date(date);
+  const now = Date.now();
+  const diffMs = now - d.getTime();
+  const diffMins = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  let relative: string;
+  if (diffMins < 2) relative = "Just now";
+  else if (diffMins < 60) relative = `${diffMins}m ago`;
+  else if (diffHours < 24) relative = `${diffHours}h ago`;
+  else if (diffDays < 7) relative = `${diffDays}d ago`;
+  else relative = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  const exact = d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  return { relative, exact };
+}
+
 // ── Edit Modal ────────────────────────────────────────────────────────────────
 
 interface EditModalProps {
@@ -529,7 +549,17 @@ export function AdminUsers() {
                       : <XCircle className="h-4 w-4 text-[#9CA3AF]" />}
                   </td>
                   <td className="px-4 py-3 text-[12px] text-[#9CA3AF]">{fmt(user.createdAt)}</td>
-                  <td className="px-4 py-3 text-[12px] text-[#9CA3AF]">{fmt(user.lastLogin)}</td>
+                  <td className="px-4 py-3 text-[12px]">
+                    {(() => {
+                      const s = fmtSignIn(user.lastLogin);
+                      if (typeof s === "string") return <span className="text-[#6B7280]">{s}</span>;
+                      return (
+                        <span title={s.exact} className="cursor-default text-[#9CA3AF] hover:text-white transition-colors">
+                          {s.relative}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
                       {/* Edit */}
