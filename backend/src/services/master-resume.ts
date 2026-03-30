@@ -559,31 +559,8 @@ export async function saveMasterResumeImport(userId: string, data: {
 }
 
 export async function getDefaultMasterResumeContext(userId: string): Promise<string | null> {
-  const globalAiSettings = await getGlobalAiSettings(userId);
-  const masterResumeId = await ensureMasterResume(userId);
-  const profiles = await query<Record<string, unknown>>(
-    `SELECT id
-     FROM master_resume_profiles
-     WHERE master_resume_id = $1
-       AND is_active = true
-       AND use_for_ai = true
-     ORDER BY updated_at DESC, created_at DESC
-     LIMIT 2`,
-    [masterResumeId]
-  );
-
-  const profileIds = profiles.map((profile) => String(profile.id));
-  const profileContext = profileIds.length > 0
-    ? await getMasterResumeContextForProfiles(userId, profileIds)
-    : null;
-  const legacyContext = globalAiSettings.useLegacyResumePreferencesForAi
-    ? await getLegacyResumePreferencesContext(userId)
-    : null;
-  const combined = [profileContext, legacyContext]
-    .filter((item): item is string => Boolean(item?.trim()))
-    .join("\n\n===\n\n");
-
-  return combined || null;
+  const context = await getAiResumeSourceContext(userId);
+  return context.context;
 }
 
 export async function getLegacyResumePreferencesContext(userId: string): Promise<string | null> {
@@ -668,7 +645,7 @@ export async function getMasterResumeContextForProfile(userId: string, profileId
 }
 
 export async function getMasterResumeContextForProfiles(userId: string, profileIds: string[]): Promise<string | null> {
-  const uniqueIds = Array.from(new Set(profileIds.map((profileId) => profileId.trim()).filter(Boolean))).slice(0, 2);
+  const uniqueIds = Array.from(new Set(profileIds.map((profileId) => profileId.trim()).filter(Boolean)));
   if (uniqueIds.length === 0) return null;
 
   const contexts = await Promise.all(
@@ -681,4 +658,97 @@ export async function getMasterResumeContextForProfiles(userId: string, profileI
   return nonEmptyContexts
     .map((context, index) => `Master Resume Profile ${index + 1}\n${context}`)
     .join("\n\n---\n\n");
+}
+
+function compactProfileOutline(profile: MasterResumeProfileAggregate): string {
+  const parts = [
+    profile.name,
+    profile.targetRoles.length > 0 ? `Roles: ${profile.targetRoles.join(", ")}` : null,
+    profile.experienceYears > 0 ? `Experience: ${profile.experienceYears} years` : null,
+  ].filter(Boolean);
+
+  const skills = [...profile.skills.core, ...profile.skills.tools].filter(Boolean).slice(0, 8);
+  if (skills.length > 0) {
+    parts.push(`Skills: ${skills.join(", ")}`);
+  }
+
+  return parts.join(" | ");
+}
+
+export async function getAiResumeSourceContext(
+  userId: string,
+  options?: {
+    preferredProfileIds?: string[];
+    includeLegacy?: boolean;
+    maxChars?: number;
+  }
+): Promise<{
+  context: string | null;
+  profileIds: string[];
+  profileNames: string[];
+  profiles: MasterResumeProfileAggregate[];
+  usedLegacy: boolean;
+}> {
+  const globalAiSettings = await getGlobalAiSettings(userId);
+  const allProfiles = await getMasterResumeProfiles(userId);
+  const preferredIds = new Set((options?.preferredProfileIds ?? []).map((profileId) => profileId.trim()).filter(Boolean));
+  const eligibleProfiles = allProfiles
+    .filter((profile) => profile.isActive && profile.useForAi)
+    .sort((a, b) => {
+      const preferredDelta = Number(preferredIds.has(b.id)) - Number(preferredIds.has(a.id));
+      if (preferredDelta !== 0) return preferredDelta;
+      const defaultDelta = Number(b.isDefault) - Number(a.isDefault);
+      if (defaultDelta !== 0) return defaultDelta;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+
+  const contextBlocks: string[] = [];
+  const includedProfiles: MasterResumeProfileAggregate[] = [];
+  const maxChars = options?.maxChars ?? 12000;
+
+  for (const profile of eligibleProfiles) {
+    const context = await getMasterResumeContextForProfile(userId, profile.id);
+    if (!context?.trim()) continue;
+
+    const nextBlock = `Master Resume Profile ${includedProfiles.length + 1}\n${context}`;
+    const proposed = [...contextBlocks, nextBlock].join("\n\n---\n\n");
+    if (proposed.length > maxChars && contextBlocks.length > 0) {
+      break;
+    }
+
+    contextBlocks.push(nextBlock);
+    includedProfiles.push(profile);
+  }
+
+  if (includedProfiles.length < eligibleProfiles.length) {
+    const condensedProfiles = eligibleProfiles
+      .slice(includedProfiles.length)
+      .map(compactProfileOutline)
+      .filter(Boolean);
+    if (condensedProfiles.length > 0) {
+      contextBlocks.push(
+        `Additional Active Resume Profiles (condensed)\n${condensedProfiles.map((line) => `- ${line}`).join("\n")}`
+      );
+    }
+  }
+
+  const shouldIncludeLegacy =
+    options?.includeLegacy === undefined
+      ? globalAiSettings.useLegacyResumePreferencesForAi
+      : options.includeLegacy;
+  const legacyContext = shouldIncludeLegacy
+    ? await getLegacyResumePreferencesContext(userId)
+    : null;
+
+  const combined = [...contextBlocks, legacyContext]
+    .filter((item): item is string => Boolean(item?.trim()))
+    .join("\n\n===\n\n");
+
+  return {
+    context: combined || null,
+    profileIds: includedProfiles.map((profile) => profile.id),
+    profileNames: includedProfiles.map((profile) => profile.name),
+    profiles: includedProfiles,
+    usedLegacy: Boolean(legacyContext?.trim()),
+  };
 }

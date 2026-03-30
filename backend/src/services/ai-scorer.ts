@@ -47,6 +47,11 @@ interface JobInput {
   jobType?: string | null;
   salaryMin?: number | null;
   salaryMax?: number | null;
+  workArrangement?: string | null;
+  companyAddress?: string | null;
+  paymentType?: string | null;
+  compensationText?: string | null;
+  isContract?: boolean;
 }
 
 const SYSTEM_PROMPT = `You are a professional career coach and recruiter evaluator.
@@ -167,6 +172,11 @@ export async function scoreJobWithAi(
   if (job.location) jobParts.push(`Location: ${job.location}`);
   if (job.remote) jobParts.push("Remote: Yes");
   if (job.jobType) jobParts.push(`Job type: ${job.jobType}`);
+  if (job.workArrangement) jobParts.push(`Work arrangement: ${job.workArrangement}`);
+  if (job.companyAddress) jobParts.push(`Company address: ${job.companyAddress}`);
+  if (job.paymentType) jobParts.push(`Payment type: ${job.paymentType}`);
+  if (job.compensationText) jobParts.push(`Compensation details: ${job.compensationText}`);
+  if (typeof job.isContract === "boolean") jobParts.push(`Contract role: ${job.isContract ? "Yes" : "No"}`);
   if (job.salaryMin || job.salaryMax) {
     const salaryText = [
       job.salaryMin ? `$${Math.round(job.salaryMin / 1000)}k` : null,

@@ -31,6 +31,11 @@ export interface GlobalAiSettings {
   noChangeTitles?: boolean;
   noExaggerateMetrics?: boolean;
   onlyRephrase?: boolean;
+  mirrorJobKeywords?: boolean;
+  prioritizeRecentExperience?: boolean;
+  keepBulletsConcise?: boolean;
+  avoidFirstPerson?: boolean;
+  emphasizeLeadership?: boolean;
   aiCustomRoles?: string[];
   aiDefaultInstructions?: string | null;
   resumeTitleFont?: "Playfair Display" | "Poppins" | "Space Grotesk" | "Merriweather" | "Libre Baskerville";

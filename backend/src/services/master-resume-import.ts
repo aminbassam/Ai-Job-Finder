@@ -59,50 +59,8 @@ interface ParseStructuredOptions {
   fallbackName?: string;
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function cleanArray(values?: string[] | null): string[] {
   return Array.from(new Set((values ?? []).map((value) => value.trim()).filter(Boolean)));
-}
-
-function titleCase(value: string): string {
-  return value
-    .split(/[\s_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(" ");
-}
-
-function inferNameFromLinkedInUrl(url: string): string | undefined {
-  try {
-    const parsed = new URL(url);
-    const slug = parsed.pathname
-      .split("/")
-      .filter(Boolean)
-      .pop();
-    if (!slug) return undefined;
-    return titleCase(slug.replace(/^in\b/i, "").replace(/[^a-zA-Z0-9\s_-]/g, " "));
-  } catch {
-    return undefined;
-  }
-}
-
-function buildLinkedInFallbackText(url: string, profileName?: string): string {
-  const inferredName = profileName?.trim() || inferNameFromLinkedInUrl(url) || "LinkedIn Candidate";
-  return [
-    inferredName,
-    "LinkedIn profile import",
-    `Source URL: ${url}`,
-    "Structured import fallback activated because the live LinkedIn page could not be read directly.",
-    "Please review and enrich the imported profile manually where needed.",
-  ].join("\n");
 }
 
 function extractSection(text: string, startPattern: RegExp, endPatterns: RegExp[]): string {
@@ -129,7 +87,7 @@ function looksLikeHeading(line: string): boolean {
   return /^(experience|work experience|professional experience|employment|skills|technical skills|projects|project experience|summary|about|leadership|certifications|education)$/i.test(line.trim());
 }
 
-function buildFallbackParsedResumeJson(rawText: string, sourceType: "linkedin" | "upload", fallbackName?: string): ParsedResumeJson {
+function buildFallbackParsedResumeJson(rawText: string, fallbackName?: string): ParsedResumeJson {
   const normalizedText = rawText.replace(/\r/g, "").trim();
   const lines = extractFirstMeaningfulLines(normalizedText);
   const firstLine = lines[0] ?? "";
@@ -221,13 +179,13 @@ function buildFallbackParsedResumeJson(rawText: string, sourceType: "linkedin" |
   ).slice(0, 10);
 
   const summary = summarySection
-    || lines.slice(sourceType === "linkedin" ? 2 : 1, sourceType === "linkedin" ? 5 : 4).join(" ").trim()
+    || lines.slice(1, 4).join(" ").trim()
     || "Imported starter profile. Review and refine the structured content for best tailoring results.";
 
   const experience = bulletCandidates.length > 0
     ? [{
         title: inferredTitle || "Imported Experience",
-        company: sourceType === "linkedin" ? "Imported from LinkedIn" : "Imported from Resume",
+        company: "Imported from Resume",
         start_date: "",
         end_date: "",
         bullets: bulletCandidates.slice(0, 8),
@@ -330,50 +288,9 @@ export async function extractResumeTextFromFile(fileName: string, mimeType: stri
   throw new Error("Unsupported file type. Please upload a PDF or DOCX resume.");
 }
 
-async function extractWithPlaywright(url: string): Promise<string> {
-  try {
-    const playwright = await import("playwright");
-    const browser = await playwright.chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
-    await page.waitForTimeout(1500);
-    const text = await page.locator("body").innerText().catch(() => "");
-    await browser.close();
-    return text.trim();
-  } catch (err) {
-    throw new Error(`Playwright import failed: ${(err as Error).message}`);
-  }
-}
-
-export async function extractTextFromLinkedInUrl(url: string): Promise<string> {
-  try {
-    const text = await extractWithPlaywright(url);
-    if (text) return text;
-  } catch {
-    // fallback below
-  }
-
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 JobFlowAI Resume Importer",
-    },
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) {
-    return buildLinkedInFallbackText(url);
-  }
-  const html = await response.text();
-  const text = stripHtml(html);
-  if (!text) {
-    return buildLinkedInFallbackText(url);
-  }
-  return text;
-}
-
 export async function parseStructuredResumeJson(
   userId: string,
   rawText: string,
-  sourceType: "linkedin" | "upload",
   options: ParseStructuredOptions = {}
 ): Promise<ParsedResumeJson> {
   const experienceJsonShape = `{
@@ -441,19 +358,7 @@ export async function parseStructuredResumeJson(
 - custom_sections: ACTIVELY search for and create sections for Publications, Awards, Patents, Languages, Volunteer Work, Honors, Open Source, Professional Memberships, Conferences, or ANY content that doesn't fit the standard fields. Do not omit non-standard sections.
 - Put schools/degrees into education. Put standalone credentials into certificates.`;
 
-  const prompt = sourceType === "linkedin"
-    ? `Extract structured resume data from this LinkedIn profile text.
-
-Return ONLY valid JSON:
-${sharedJsonTemplate}
-
-Rules:
-${sharedRules}
-- Extract bullets as concise achievement-oriented lines.
-
-PROFILE TEXT:
-${rawText.slice(0, 18_000)}`
-    : `Convert this resume text into structured JSON.
+  const prompt = `Convert this resume text into structured JSON.
 
 Return ONLY valid JSON:
 ${sharedJsonTemplate}
@@ -482,7 +387,7 @@ ${rawText.slice(0, 18_000)}`;
       || message.includes("AI returned invalid JSON")
       || message.includes("AI returned an empty response.")
     ) {
-      return buildFallbackParsedResumeJson(rawText, sourceType, options.fallbackName);
+      return buildFallbackParsedResumeJson(rawText, options.fallbackName);
     }
     throw err;
   }

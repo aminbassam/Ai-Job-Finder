@@ -10,6 +10,7 @@ import {
   saveMasterResumeProfile,
 } from "../services/master-resume";
 import { normalizeImportedResumeToProfile } from "../services/master-resume-import";
+import { scoreMasterResume } from "../services/master-resume-score";
 import { query, queryOne } from "../db/pool";
 
 const router = Router();
@@ -151,46 +152,91 @@ router.get("/profiles/:id/matched-jobs", async (req: Request, res: Response) => 
     if (!profile) return res.status(404).json({ message: "Profile not found." });
 
     const jobs = await query<Record<string, unknown>>(
-      `SELECT id, title, company, location, remote, ai_score, match_tier, source_url, status
-       FROM job_matches
-       WHERE user_id = $1
-         AND status != 'dismissed'
-         AND match_tier IN ('strong', 'maybe', 'new')
-       ORDER BY ai_score DESC NULLS LAST, created_at DESC
-       LIMIT 30`,
+      `SELECT jm.*,
+              rd.id AS resume_id,
+              rd.title AS resume_title,
+              rd.updated_at AS resume_updated_at,
+              rd.resume_type AS resume_type
+       FROM job_matches jm
+       LEFT JOIN LATERAL (
+         SELECT d.id, d.title, d.updated_at, d.resume_type
+         FROM documents d
+         WHERE d.user_id = jm.user_id
+           AND d.kind = 'resume'
+           AND d.resume_type = 'tailored'
+           AND d.metadata->>'jobMatchId' = jm.id::text
+         ORDER BY d.updated_at DESC
+         LIMIT 1
+       ) rd ON true
+       WHERE jm.user_id = $1
+         AND jm.status != 'dismissed'
+         AND jm.match_tier IN ('strong', 'maybe', 'new')
+       ORDER BY jm.ai_score DESC NULLS LAST, jm.created_at DESC
+       LIMIT 60`,
       [req.userId]
     );
 
-    const terms = [
-      ...profile.targetRoles,
-      ...profile.skills.core,
-      ...profile.skills.tools,
-    ].map((t) => t.toLowerCase()).slice(0, 20);
-
     const scored = jobs
       .map((job) => {
-        const titleLower = String(job.title ?? "").toLowerCase();
-        const matchBonus = terms.filter((term) =>
-          titleLower.includes(term) || term.includes(titleLower.split(" ")[0] ?? "")
-        ).length;
-        return { job, matchBonus };
+        const resumeScore = scoreMasterResume({
+          name: profile.name,
+          targetRoles: profile.targetRoles,
+          summary: profile.summary,
+          experienceYears: profile.experienceYears,
+          experiences: profile.experiences,
+          skills: profile.skills,
+          education: profile.education,
+          projects: profile.projects,
+          leadership: profile.leadership,
+          jobTitle: String(job.title ?? ""),
+          jobDescription: String(job.description ?? ""),
+        });
+
+        const fitScore = Math.round(
+          resumeScore.atsScore * 0.35 +
+          resumeScore.mqMatch.matchScore * 0.35 +
+          resumeScore.impactScore * 0.15 +
+          resumeScore.completenessScore * 0.15
+        );
+
+        return {
+          fitScore,
+          job,
+        };
       })
       .sort(
         (a, b) =>
-          (Number(b.job.ai_score ?? 0) + b.matchBonus * 12) -
-          (Number(a.job.ai_score ?? 0) + a.matchBonus * 12)
+          b.fitScore - a.fitScore ||
+          Number(b.job.ai_score ?? 0) - Number(a.job.ai_score ?? 0) ||
+          new Date(String(b.job.created_at ?? 0)).getTime() - new Date(String(a.job.created_at ?? 0)).getTime()
       )
-      .slice(0, 5)
-      .map(({ job }) => ({
+      .slice(0, 20)
+      .map(({ job, fitScore }) => ({
         id: String(job.id),
         title: String(job.title),
         company: job.company ? String(job.company) : undefined,
         location: job.location ? String(job.location) : undefined,
         remote: Boolean(job.remote),
         aiScore: job.ai_score != null ? Number(job.ai_score) : undefined,
+        aiSummary: job.ai_summary ? String(job.ai_summary) : undefined,
         matchTier: job.match_tier ? String(job.match_tier) : undefined,
+        source: job.source ? String(job.source) : "manual",
         sourceUrl: job.source_url ? String(job.source_url) : undefined,
         status: String(job.status),
+        createdAt: String(job.created_at),
+        postedAt: job.posted_at ? String(job.posted_at) : undefined,
+        scoreBreakdown: (job.score_breakdown as Record<string, unknown> | null) ?? undefined,
+        fitScore,
+        fitResumeProfileId: profile.id,
+        fitResumeProfileName: profile.name,
+        linkedResume: job.resume_id
+          ? {
+              id: String(job.resume_id),
+              title: String(job.resume_title),
+              lastModified: String(job.resume_updated_at),
+              resumeType: job.resume_type ? String(job.resume_type) : undefined,
+            }
+          : undefined,
       }));
 
     res.json(scored);

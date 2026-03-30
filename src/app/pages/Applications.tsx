@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { ScoreBadge } from "../components/shared/ScoreBadge";
+import { DocumentPreviewModal, type DocumentPreviewRef } from "../components/documents/DocumentPreviewModal";
 import { applicationsService, type ApplicationItem, type ApplicationStatus } from "../services/applications.service";
 
 const STATUS_OPTIONS: ApplicationStatus[] = [
@@ -49,6 +50,7 @@ export function Applications() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [viewingResume, setViewingResume] = useState<DocumentPreviewRef | null>(null);
 
   async function loadApplications() {
     setLoading(true);
@@ -212,8 +214,27 @@ export function Applications() {
                       </TableCell>
                       <TableCell className="text-[#9CA3AF]">{application.source}</TableCell>
                       <TableCell className="text-[#9CA3AF]">{formatDate(application.appliedDate)}</TableCell>
-                      <TableCell className="max-w-[280px] text-[12px] text-[#D1D5DB]">
-                        {application.resumeTitle ?? "No resume linked"}
+                      <TableCell className="text-[#D1D5DB]">
+                        {application.resumeId && application.resumeTitle ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setViewingResume({
+                                id: application.resumeId!,
+                                title: application.resumeTitle!,
+                                jobTitle: application.jobTitle,
+                                company: application.company,
+                              })
+                            }
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#374151] bg-[#0B0F14] text-[#9CA3AF] transition-all hover:border-[#4F8CFF]/50 hover:text-[#4F8CFF]"
+                            title={`Open resume: ${application.resumeTitle}`}
+                            aria-label={`Open resume ${application.resumeTitle}`}
+                          >
+                            <FileText className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <span className="text-[12px] text-[#6B7280]">-</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -293,6 +314,13 @@ export function Applications() {
             </Card>
           </div>
         </>
+      )}
+
+      {viewingResume && (
+        <DocumentPreviewModal
+          doc={viewingResume}
+          onClose={() => setViewingResume(null)}
+        />
       )}
     </div>
   );

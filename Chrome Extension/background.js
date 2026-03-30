@@ -30,6 +30,10 @@ async function apiFetch(path, options = {}) {
   return json;
 }
 
+function buildAppUrl(apiUrl) {
+  return apiUrl.replace(/:\d+\/api$/, ":5678").replace(/\/api$/, "");
+}
+
 // ── Extract job data from active tab ────────────────────────────────────────
 
 async function extractJobFromTab(tabId) {
@@ -104,12 +108,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             location: job.location,
             description: job.description,
             remote: job.remote ?? false,
+            jobType: job.jobType ?? null,
+            salaryMin: job.salaryMin ?? null,
+            salaryMax: job.salaryMax ?? null,
+            rawData: job.rawData ?? {},
             sourceUrl: job.sourceUrl,
             source: "extension",
             externalId: job.externalId,
           }),
         });
         return { ok: true, job: result };
+      }
+
+      // Load one saved job result
+      case "GET_JOB_RESULT": {
+        const { jobId } = message;
+        const result = await apiFetch(`/agent/results/${jobId}`);
+        return { ok: true, job: result };
+      }
+
+      // Load recent extension imports
+      case "LIST_IMPORTED_JOBS": {
+        const limit = Number.isFinite(Number(message.limit)) ? Number(message.limit) : 6;
+        const result = await apiFetch(`/agent/results?source=extension&sort=recent&limit=${Math.min(Math.max(limit, 1), 12)}&offset=0`);
+        return { ok: true, matches: result.matches ?? [], total: result.total ?? 0 };
+      }
+
+      // Load best matching master resume profiles for a saved job
+      case "LIST_RELATED_PROFILES": {
+        const { jobId } = message;
+        const limit = Number.isFinite(Number(message.limit)) ? Number(message.limit) : 3;
+        const result = await apiFetch(`/agent/results/${jobId}/resume-profiles?limit=${Math.min(Math.max(limit, 1), 6)}`);
+        return { ok: true, ...result };
       }
 
       // Generate tailored resume for a saved job
@@ -126,7 +156,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "OPEN_JOBFLOW": {
         const { path } = message;
         const { apiUrl } = await getAuth();
-        const appUrl = apiUrl.replace(/:\d+\/api$/, ":5678").replace(/\/api$/, "");
+        const appUrl = buildAppUrl(apiUrl);
         await chrome.tabs.create({ url: `${appUrl}${path ?? "/jobs"}` });
         return { ok: true };
       }

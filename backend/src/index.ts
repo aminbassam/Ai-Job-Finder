@@ -21,6 +21,7 @@ import agentRouter       from "./routes/agent";
 import aiRouter          from "./routes/ai";
 import gmailRouter       from "./routes/gmail";
 import masterResumeRouter from "./routes/master-resume";
+import updatesRouter     from "./routes/updates";
 import { startScheduler } from "./services/scheduler";
 import { ensureDemoUserAndSeedData } from "./services/demo-user";
 
@@ -66,6 +67,7 @@ app.use("/api/agent",        agentRouter);
 app.use("/api/ai",           aiRouter);
 app.use("/api/gmail",        gmailRouter);
 app.use("/api/master-resume", masterResumeRouter);
+app.use("/api/updates",      updatesRouter);
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
@@ -174,6 +176,9 @@ async function applyMigrations() {
     { name: "017_profile_activity_logs", file: join(ROOT, "db/migrations/017_profile_activity_logs.sql") },
     { name: "018_account_usernames", file: join(ROOT, "db/migrations/018_account_usernames.sql") },
     { name: "019_demo_users", file: join(ROOT, "db/migrations/019_demo_users.sql") },
+    { name: "020_resume_custom_sections", file: join(ROOT, "db/migrations/020_resume_custom_sections.sql") },
+    { name: "021_custom_sections_tags", file: join(ROOT, "db/migrations/021_custom_sections_tags.sql") },
+    { name: "022_expand_ai_behavior", file: join(ROOT, "db/migrations/022_expand_ai_behavior.sql") },
   ];
   const client = await pool.connect();
   try {
@@ -275,6 +280,11 @@ async function ensureCriticalColumns() {
     `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_template text NOT NULL DEFAULT 'modern'`,
     `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS resume_density text NOT NULL DEFAULT 'balanced'`,
     `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS use_legacy_resume_preferences_for_ai boolean NOT NULL DEFAULT false`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS mirror_job_keywords boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS prioritize_recent_experience boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS keep_bullets_concise boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS avoid_first_person boolean NOT NULL DEFAULT true`,
+    `ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS emphasize_leadership boolean NOT NULL DEFAULT false`,
     `ALTER TABLE account_users ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT false`,
     `ALTER TABLE documents ADD COLUMN IF NOT EXISTS content_html text`,
     `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS content_html text`,

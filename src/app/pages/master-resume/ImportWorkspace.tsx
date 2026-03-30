@@ -3,9 +3,7 @@ import { Link } from "react-router";
 import {
   CheckCircle2,
   FileText,
-  Linkedin,
   Loader2,
-  Sparkles,
   Upload,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
@@ -18,7 +16,6 @@ import {
   masterResumeService,
   ResumeImportRecord,
 } from "../../services/masterResume.service";
-import { profileService } from "../../services/profile.service";
 
 interface ImportWorkspaceProps {
   onProfileCreated?: (profileId: string) => void;
@@ -87,12 +84,6 @@ export function ImportWorkspace({ onProfileCreated }: ImportWorkspaceProps) {
   const [selectedImportId, setSelectedImportId] = useState<string | null>(null);
   const [loadingImports, setLoadingImports] = useState(true);
 
-  const [linkedinUrl, setLinkedinUrl] = useState("");
-  const [linkedinProfileName, setLinkedinProfileName] = useState("");
-  const [createLinkedInProfile, setCreateLinkedInProfile] = useState(true);
-  const [setLinkedInDefault, setSetLinkedInDefault] = useState(false);
-  const [linkedinLoading, setLinkedinLoading] = useState(false);
-
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadProfileName, setUploadProfileName] = useState("");
   const [createUploadProfile, setCreateUploadProfile] = useState(true);
@@ -121,11 +112,6 @@ export function ImportWorkspace({ onProfileCreated }: ImportWorkspaceProps) {
 
   useEffect(() => {
     void loadImports();
-    profileService.getProfile().then((profile) => {
-      if (profile.linkedinUrl) {
-        setLinkedinUrl((current) => current || profile.linkedinUrl!);
-      }
-    }).catch(() => undefined);
   }, []);
 
   const selectedImport = useMemo(
@@ -137,39 +123,6 @@ export function ImportWorkspace({ onProfileCreated }: ImportWorkspaceProps) {
     () => (selectedImport ? toParsedPreview(selectedImport.parsedJson) : null),
     [selectedImport]
   );
-
-  async function handleLinkedInImport() {
-    if (!linkedinUrl.trim()) {
-      setError("Add a LinkedIn URL to import.");
-      return;
-    }
-
-    setLinkedinLoading(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const response = await masterResumeService.parseLinkedIn({
-        url: linkedinUrl.trim(),
-        profileName: linkedinProfileName.trim() || undefined,
-        createProfile: createLinkedInProfile,
-        isDefault: createLinkedInProfile ? setLinkedInDefault : undefined,
-      });
-
-      await loadImports(response.importId);
-
-      if (response.profile?.id) {
-        setSuccess(`LinkedIn import completed and created "${response.profile.name}".`);
-        onProfileCreated?.(response.profile.id);
-      } else {
-        setSuccess("LinkedIn import completed. Review the parsed data and create a profile when ready.");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to import LinkedIn profile.");
-    } finally {
-      setLinkedinLoading(false);
-    }
-  }
 
   async function handleUploadImport() {
     if (!uploadFile) {
@@ -195,10 +148,10 @@ export function ImportWorkspace({ onProfileCreated }: ImportWorkspaceProps) {
       await loadImports(response.importId);
 
       if (response.profile?.id) {
-        setSuccess(`Resume upload completed and created "${response.profile.name}".`);
+        setSuccess(`Resume imported successfully as "${response.profile.name}".`);
         onProfileCreated?.(response.profile.id);
       } else {
-        setSuccess("Resume upload completed. Review the parsed data and create a profile when ready.");
+        setSuccess("Resume imported successfully. Review the parsed data and create a profile when ready.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import resume.");
@@ -234,7 +187,7 @@ export function ImportWorkspace({ onProfileCreated }: ImportWorkspaceProps) {
           <div>
             <h2 className="text-[20px] font-semibold text-white">Import Into Master Resume</h2>
             <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-[#9CA3AF]">
-              Import LinkedIn or an existing resume, convert it into structured career data, and turn it into reusable Master Resume profiles for resume tailoring, job-fit scoring, and AI guidance across the platform.
+              Upload an existing resume, convert it into structured career data, and turn it into reusable Master Resume profiles for resume tailoring, job-fit scoring, and AI guidance across the platform.
             </p>
           </div>
           <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] px-4 py-3 text-[12px] text-[#9CA3AF]">
@@ -255,69 +208,6 @@ export function ImportWorkspace({ onProfileCreated }: ImportWorkspaceProps) {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr,1fr]">
         <div className="space-y-6">
-          <Card className="border-[#1F2937] bg-[#111827] p-5">
-            <div className="mb-4 flex items-start gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#4F8CFF]/10">
-                <Linkedin className="h-5 w-5 text-[#4F8CFF]" />
-              </div>
-              <div>
-                <h3 className="text-[16px] font-semibold text-white">LinkedIn Import</h3>
-                <p className="text-[12px] text-[#6B7280]">
-                  Pull a public LinkedIn profile into structured experience, skills, projects, and leadership data.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">LinkedIn URL</Label>
-                <Input
-                  value={linkedinUrl}
-                  onChange={(event) => setLinkedinUrl(event.target.value)}
-                  placeholder="https://www.linkedin.com/in/your-profile"
-                  className="border-[#1F2937] bg-[#0B0F14] text-white"
-                />
-              </div>
-              <div>
-                <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Profile Name</Label>
-                <Input
-                  value={linkedinProfileName}
-                  onChange={(event) => setLinkedinProfileName(event.target.value)}
-                  placeholder="Technical PM, Growth Marketer, SEO Lead…"
-                  className="border-[#1F2937] bg-[#0B0F14] text-white"
-                />
-              </div>
-
-              <div className="rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-[13px] font-medium text-white">Create a structured profile automatically</p>
-                    <p className="text-[12px] text-[#6B7280]">Best for immediately using the imported data across the platform.</p>
-                  </div>
-                  <Switch checked={createLinkedInProfile} onCheckedChange={setCreateLinkedInProfile} />
-                </div>
-                {createLinkedInProfile && (
-                  <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-[#1F2937] bg-[#111827] px-4 py-3">
-                    <div>
-                      <p className="text-[13px] font-medium text-white">Set as default Master Resume profile</p>
-                      <p className="text-[12px] text-[#6B7280]">Use this imported profile as the platform-wide default context.</p>
-                    </div>
-                    <Switch checked={setLinkedInDefault} onCheckedChange={setSetLinkedInDefault} />
-                  </div>
-                )}
-              </div>
-
-              <Button
-                onClick={handleLinkedInImport}
-                disabled={linkedinLoading}
-                className="w-full bg-[#4F8CFF] text-white hover:bg-[#4F8CFF]/90"
-              >
-                {linkedinLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                Import LinkedIn Profile
-              </Button>
-            </div>
-          </Card>
-
           <Card className="border-[#1F2937] bg-[#111827] p-5">
             <div className="mb-4 flex items-start gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#22C55E]/10">
@@ -403,7 +293,7 @@ export function ImportWorkspace({ onProfileCreated }: ImportWorkspaceProps) {
 
             {!selectedImport || !preview ? (
               <div className="rounded-xl border border-dashed border-[#1F2937] bg-[#0B0F14] p-5 text-[13px] text-[#9CA3AF]">
-                Import a LinkedIn profile or upload a resume to preview the parsed structure here.
+                Upload a resume to preview the parsed structure here.
               </div>
             ) : (
               <div className="space-y-4">
@@ -480,7 +370,7 @@ export function ImportWorkspace({ onProfileCreated }: ImportWorkspaceProps) {
 
             {imports.length === 0 ? (
               <div className="rounded-xl border border-dashed border-[#1F2937] bg-[#0B0F14] p-5 text-[13px] text-[#9CA3AF]">
-                No imports yet. Once you import LinkedIn or a file, each parsed record will appear here.
+                No imports yet. Once you upload a file, each parsed record will appear here.
               </div>
             ) : (
               <div className="space-y-3">

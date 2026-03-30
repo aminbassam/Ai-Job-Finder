@@ -64,6 +64,9 @@
 
   <!-- ── Main view ─────────────────────────────────────────────────── -->
   <section id="view-main" class="view hidden">
+    <div class="inline-guidance">
+      Save jobs from supported pages, then review your recent imports, live match score, and the best resume profiles to use before generating a tailored resume.
+    </div>
 
     <!-- Scanning state -->
     <div id="state-scanning" class="state-panel hidden">
@@ -213,6 +216,46 @@
         <div id="resume-error" class="alert alert-error hidden"></div>
       </div>
 
+    </div>
+
+    <div class="section-card">
+      <div class="section-head">
+        <div>
+          <p class="section-eyebrow">Extension Activity</p>
+          <h3>Recent imports</h3>
+        </div>
+        <button id="btn-refresh-imports" class="btn-ghost-sm">Refresh</button>
+      </div>
+      <p class="section-copy">Use this list to revisit jobs you imported from the extension and jump back into the best one quickly.</p>
+      <div id="imported-jobs-error" class="alert alert-error hidden"></div>
+      <div id="imports-loading" class="inline-note hidden">Loading your recent extension imports…</div>
+      <div id="imported-jobs-empty" class="empty-inline hidden">No jobs saved from the extension yet. Save one from a job page to start building your shortlist.</div>
+      <div id="imported-jobs-list" class="history-list"></div>
+    </div>
+
+    <div id="selected-import-panel" class="section-card hidden">
+      <div class="section-head">
+        <div>
+          <p class="section-eyebrow">Selected Import</p>
+          <h3 id="selected-import-heading">Job details</h3>
+        </div>
+        <button id="btn-open-selected-jobflow" class="btn-ghost-sm">Open in JobFlow</button>
+      </div>
+
+      <div id="selected-import-details"></div>
+      <div id="selected-import-scoring" class="inline-note hidden">Scoring is still running. The score and guidance below will refresh automatically.</div>
+      <div id="selected-import-ai-help" class="alert alert-error hidden"></div>
+
+      <div class="subsection-head">
+        <div>
+          <h4>Best resume profiles</h4>
+          <p class="subsection-copy">We rank your active master resume profiles so you can choose the strongest base before generating.</p>
+        </div>
+        <button id="btn-open-source" class="btn-ghost-sm">Open source page</button>
+      </div>
+      <div id="related-profiles-loading" class="inline-note hidden">Ranking your resume profiles for this job…</div>
+      <div id="related-profiles-empty" class="empty-inline hidden">No active resume profiles are ready yet. Add one in JobFlow to unlock profile recommendations here.</div>
+      <div id="related-profiles-list" class="profiles-list"></div>
     </div>
   </section>
 

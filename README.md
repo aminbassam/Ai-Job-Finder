@@ -60,7 +60,7 @@ Developer onboarding:
     services/scheduler.ts      ← node-cron scheduler (agent every 30 min, Gmail every 15 min)
     services/gmail-linkedin-ingestion.ts ← Gmail OAuth + LinkedIn email parsing + import
     services/master-resume.ts  ← structured master resume persistence + aggregate loading
-    services/master-resume-import.ts ← LinkedIn/PDF/DOCX import parsing + normalization
+    services/master-resume-import.ts ← PDF/DOCX master resume parsing + normalization
     services/master-resume-score.ts  ← ATS / impact / completeness / MQ scoring
     services/ai-client.ts      ← shared OpenAI helper for JSON/chat completions
     services/job-ai-extraction.ts ← job/email AI extraction fallback
@@ -317,7 +317,6 @@ The Resume area is now the **Master Resume** hub.
 
 It includes:
 - multiple structured Master Resume profiles per user
-- LinkedIn import
 - PDF / DOCX resume upload
 - structured experience, bullets, skills, projects, and leadership editing
 - AI summary generation
@@ -327,6 +326,7 @@ It includes:
 
 Important behavior:
 - the Master Resume is a structured data layer, not just a document
+- Master Resume imports now support PDF / DOCX resume uploads only
 
 ### Settings → Integrations
 

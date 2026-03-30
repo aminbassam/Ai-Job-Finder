@@ -3,15 +3,17 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { runJsonCompletion } from "../services/ai-client";
+import { buildAiPreferenceNotes, getGlobalAiSettings } from "../services/ai-global-settings";
 import {
   extractResumeTextFromFile,
-  extractTextFromLinkedInUrl,
   normalizeImportedResumeToProfile,
   parseStructuredResumeJson,
 } from "../services/master-resume-import";
 import { extractJobSignals } from "../services/job-ai-extraction";
 import { extractJobFromEmailWithFallback } from "../services/gmail-linkedin-ingestion";
 import {
+  getAiResumeSourceContext,
+  getMasterResumeContextForProfile,
   getMasterResumeProfile,
   saveMasterResumeImport,
   saveMasterResumeProfile,
@@ -20,52 +22,6 @@ import { scoreMasterResume } from "../services/master-resume-score";
 
 const router = Router();
 router.use(requireAuth);
-
-const parseLinkedInSchema = z.object({
-  url: z.string().url(),
-  profileName: z.string().max(200).optional(),
-  createProfile: z.boolean().optional(),
-  isActive: z.boolean().optional(),
-  useForAi: z.boolean().optional(),
-  isDefault: z.boolean().optional(),
-});
-
-router.post("/parse-linkedin", validate(parseLinkedInSchema), async (req: Request, res: Response) => {
-  const { url, profileName, createProfile, isActive, useForAi, isDefault } = req.body as z.infer<typeof parseLinkedInSchema>;
-
-  try {
-    const rawText = await extractTextFromLinkedInUrl(url);
-    const parsed = await parseStructuredResumeJson(req.userId, rawText, "linkedin", {
-      fallbackName: profileName ?? undefined,
-    });
-    const importId = await saveMasterResumeImport(req.userId, {
-      sourceType: "linkedin",
-      sourceUrl: url,
-      rawText,
-      parsedJson: parsed as Record<string, unknown>,
-    });
-
-    let createdProfile = null;
-    if (createProfile) {
-      const normalized = normalizeImportedResumeToProfile(parsed, profileName ?? "LinkedIn Profile");
-      normalized.sourceImportId = importId;
-      normalized.isActive = isActive !== false;
-      normalized.useForAi = useForAi !== false;
-      normalized.isDefault = Boolean(isDefault);
-      createdProfile = await saveMasterResumeProfile(req.userId, normalized);
-    }
-
-    res.status(201).json({
-      importId,
-      rawText,
-      parsed,
-      profile: createdProfile,
-    });
-  } catch (err) {
-    console.error("[ai/parse-linkedin]", err);
-    res.status(500).json({ message: err instanceof Error ? err.message : "Failed to parse LinkedIn profile." });
-  }
-});
 
 const parseResumeSchema = z.object({
   fileName: z.string().min(1),
@@ -83,7 +39,7 @@ router.post("/parse-resume", validate(parseResumeSchema), async (req: Request, r
 
   try {
     const rawText = await extractResumeTextFromFile(fileName, mimeType, base64);
-    const parsed = await parseStructuredResumeJson(req.userId, rawText, "upload", {
+    const parsed = await parseStructuredResumeJson(req.userId, rawText, {
       fallbackName: profileName ?? fileName.replace(/\.[^.]+$/, ""),
     });
     const importId = await saveMasterResumeImport(req.userId, {
@@ -128,16 +84,27 @@ router.post("/generate-summary", validate(profileIdSchema), async (req: Request,
       return res.status(404).json({ message: "Master resume profile not found." });
     }
 
+    const focusProfileContext =
+      await getMasterResumeContextForProfile(req.userId, profileId) ??
+      `Master resume profile: ${profile.name}`;
+    const resumeLibrary = await getAiResumeSourceContext(req.userId, {
+      preferredProfileIds: [profileId],
+    });
+    const globalAi = await getGlobalAiSettings(req.userId);
+    const supportingContext = resumeLibrary.profileIds.includes(profileId)
+      ? resumeLibrary.context
+      : [focusProfileContext, resumeLibrary.context].filter(Boolean).join("\n\n===\n\n");
+
     const prompt = `Create a strong 3-4 sentence professional summary for this master resume profile.
 
-PROFILE NAME: ${profile.name}
-TARGET ROLES: ${profile.targetRoles.join(", ")}
-YEARS OF EXPERIENCE: ${profile.experienceYears}
-CURRENT SUMMARY: ${profile.summary ?? ""}
-CORE SKILLS: ${profile.skills.core.join(", ")}
-TOOLS: ${profile.skills.tools.join(", ")}
-PROJECTS: ${profile.projects.map((project) => `${project.name}: ${project.outcome ?? project.description ?? ""}`).join(" | ")}
-LEADERSHIP: ${profile.leadership?.scope ?? ""}
+FOCUS PROFILE
+${focusProfileContext}
+
+SUPPORTING ACTIVE RESUME LIBRARY
+${supportingContext || "No additional active AI resume profiles are currently enabled."}
+
+AI WRITING PREFERENCES
+${buildAiPreferenceNotes(globalAi).join("\n")}
 
 Return only JSON:
 {
@@ -147,7 +114,10 @@ Return only JSON:
 Rules:
 - No invented experience.
 - ATS-friendly and concise.
-- Emphasize measurable impact and role alignment.`;
+- Emphasize measurable impact and role alignment.
+- Use the focus profile as the primary source of truth.
+- Supporting resume profiles can help with overlap, tone, and keywords, but do not blend in experience that does not belong to the focus profile.
+- Ignore deactivated resume profiles entirely.`;
 
     const result = await runJsonCompletion<{ summary?: string }>({
       userId: req.userId,

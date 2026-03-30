@@ -210,6 +210,20 @@ export function IntegrationsTab() {
           </div>
         )}
 
+        <div className="mt-4 rounded-xl border border-[#1F2937] bg-[#0B0F14] p-4">
+          <h3 className="text-[14px] font-semibold text-white">How to connect Gmail</h3>
+          <div className="mt-3 space-y-2 text-[12px] leading-6 text-[#9CA3AF]">
+            <p>1. Make sure LinkedIn job alerts are being sent to the Gmail inbox you want JobFlow to monitor.</p>
+            <p>2. Click <span className="text-white">Connect Gmail</span> and sign in with that same Gmail account.</p>
+            <p>3. Approve the read-only Gmail permission so JobFlow can read LinkedIn alert emails without changing or sending email.</p>
+            <p>4. After you return, use <span className="text-white">Sync Now</span> for the first import, then JobFlow will continue checking automatically every 15 minutes.</p>
+            <p>5. Imported LinkedIn alert jobs will appear in your Job Board and continue through normal scoring and resume workflows.</p>
+          </div>
+          <div className="mt-3 rounded-lg border border-[#4F8CFF]/20 bg-[#4F8CFF]/10 px-3 py-2 text-[12px] text-[#DBEAFE]">
+            Tip: connect the Gmail account that actually receives your LinkedIn alerts. If you use a different inbox, JobFlow will not see those emails.
+          </div>
+        </div>
+
         {syncResult && (
           <div className="mt-4 rounded-lg border border-[#22C55E]/20 bg-[#22C55E]/10 p-3 text-[12px] text-[#E5E7EB]">
             <p className="font-medium text-[#22C55E]">{syncResult.message}</p>

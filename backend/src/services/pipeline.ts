@@ -12,6 +12,7 @@ import { pool } from "../db/pool";
 import {
   RawJob,
   SearchQuery,
+  buildNormalizedJobMeta,
   jobTypeMatches,
   normalizeJobType,
   postedWithinRange,
@@ -244,7 +245,7 @@ export async function runPipeline(profile: PipelineProfile): Promise<PipelineRes
           (job.description ?? "").slice(0, 10_000),
           job.requirements ?? [],
           job.postedAt ?? new Date(),
-          JSON.stringify(job.rawData ?? {}),
+          JSON.stringify(buildNormalizedJobMeta(job)),
         ]
       );
       if (rows.length > 0) {

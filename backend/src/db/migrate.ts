@@ -35,6 +35,7 @@ const migrations = [
   { name: "019_demo_users",              file: join(ROOT, "db/migrations/019_demo_users.sql") },
   { name: "020_resume_custom_sections",  file: join(ROOT, "db/migrations/020_resume_custom_sections.sql") },
   { name: "021_custom_sections_tags",    file: join(ROOT, "db/migrations/021_custom_sections_tags.sql") },
+  { name: "022_expand_ai_behavior",      file: join(ROOT, "db/migrations/022_expand_ai_behavior.sql") },
 ];
 
 function splitSql(sql: string): string[] {

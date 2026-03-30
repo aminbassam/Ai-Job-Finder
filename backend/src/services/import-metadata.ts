@@ -13,6 +13,35 @@ interface ImportedJobDetails {
   rawData: Record<string, unknown>;
 }
 
+function inferWorkArrangement(...values: Array<string | undefined>) {
+  const raw = values.filter(Boolean).join(" ").toLowerCase();
+  if (!raw) return undefined;
+  if (/\bhybrid\b/.test(raw)) return "hybrid";
+  if (/\bremote\b|\bwork from home\b|\bwfh\b|\btelecommute\b|\btelework\b/.test(raw)) return "remote";
+  if (/\bonsite\b|\bon-site\b|\bin office\b|\bin-office\b/.test(raw)) return "onsite";
+  return undefined;
+}
+
+function inferPaymentType(...values: Array<string | undefined>) {
+  const raw = values.filter(Boolean).join(" ").toLowerCase();
+  if (!raw) return undefined;
+  if (/\bper hour\b|\/hr\b|\/hour\b|\bhourly\b/.test(raw)) return "hourly";
+  if (/\bper day\b|\/day\b|\bdaily\b/.test(raw)) return "daily";
+  if (/\bper week\b|\/week\b|\bweekly\b/.test(raw)) return "weekly";
+  if (/\bper month\b|\/month\b|\bmonthly\b/.test(raw)) return "monthly";
+  if (/\bper year\b|\/year\b|\byearly\b|\bannual\b|\bannually\b/.test(raw)) return "yearly";
+  if (/\bper project\b|\bproject[- ]based\b/.test(raw)) return "project";
+  return undefined;
+}
+
+function inferContractFlag(jobType?: string, ...values: Array<string | undefined>) {
+  const raw = [jobType, ...values].filter(Boolean).join(" ").toLowerCase();
+  if (!raw) return undefined;
+  if (/\bcontract\b|\bcontractor\b|\bconsultant\b|\btemporary\b|\btemp\b|\b1099\b|\bfreelance\b/.test(raw)) return true;
+  if (/\bfull[\s-]?time\b|\bpart[\s-]?time\b|\bpermanent\b|\bw2\b|\binternship\b/.test(raw)) return false;
+  return undefined;
+}
+
 function decodeHtml(input: string): string {
   return input
     .replace(/&amp;/g, "&")
@@ -270,6 +299,14 @@ export async function fetchImportedJobDetails(sourceUrl: string): Promise<Import
     getNestedName(jobPosting?.jobLocation) ??
     getString((jobPosting?.jobLocation as Record<string, unknown> | undefined)?.address as unknown) ??
     getNestedName((jobPosting?.jobLocation as Record<string, unknown> | undefined)?.address);
+  const addressObject = (jobPosting?.jobLocation as Record<string, unknown> | undefined)?.address as Record<string, unknown> | undefined;
+  const companyAddress = [
+    getString(addressObject?.streetAddress),
+    getString(addressObject?.addressLocality),
+    getString(addressObject?.addressRegion),
+    getString(addressObject?.postalCode),
+    getString(addressObject?.addressCountry),
+  ].filter(Boolean).join(", ") || location;
 
   const employmentType = Array.isArray(jobPosting?.employmentType)
     ? getString((jobPosting?.employmentType as unknown[])[0])
@@ -292,6 +329,14 @@ export async function fetchImportedJobDetails(sourceUrl: string): Promise<Import
     getString(jobPosting?.jobLocationType)?.toUpperCase() === "TELECOMMUTE" ||
     /\bremote\b/.test(titleLocText) ||
     /\bwork from home\b|\bwfh\b/.test(titleLocText);
+  const compensationText =
+    getString((jobPosting?.baseSalary as Record<string, unknown> | undefined)?.currency) ||
+    getString(jobPosting?.salaryCurrency) ||
+    extractMeta(html, "og:salary");
+  const workArrangement =
+    remote ? "remote" : inferWorkArrangement(location, rawDescription, employmentType, rawTitle) ?? "onsite";
+  const paymentType = inferPaymentType(rawDescription, employmentType, compensationText);
+  const isContract = inferContractFlag(employmentType, rawTitle, rawDescription);
 
   return {
     sourceUrl: response.url,
@@ -307,6 +352,18 @@ export async function fetchImportedJobDetails(sourceUrl: string): Promise<Import
     postedAt,
     rawData: {
       fetchedUrl: response.url,
+      jobMeta: {
+        companyAddress,
+        workLocation: location ? stripTags(location) : undefined,
+        workArrangement,
+        paymentType,
+        compensationText,
+        isContract,
+        employmentType,
+        remote,
+        salaryMin: salaryInfo.salaryMin,
+        salaryMax: salaryInfo.salaryMax,
+      },
       pageTitle: rawTitle,
       metadata: {
         ogTitle: extractMeta(html, "og:title"),

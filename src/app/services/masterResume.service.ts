@@ -102,9 +102,33 @@ export interface MatchedJobSuggestion {
   location?: string;
   remote?: boolean;
   aiScore?: number;
+  aiSummary?: string;
   matchTier?: string;
+  source: string;
   sourceUrl?: string;
   status: string;
+  createdAt: string;
+  postedAt?: string;
+  scoreBreakdown?: {
+    skillsMatch?: number;
+    experienceMatch?: number;
+    roleAlignment?: number;
+    locationSalaryFit?: number;
+    reasoning?: string;
+    strengths?: string[];
+    weaknesses?: string[];
+    areasToAddress?: string[];
+    error?: string;
+  };
+  fitScore?: number;
+  fitResumeProfileId?: string;
+  fitResumeProfileName?: string;
+  linkedResume?: {
+    id: string;
+    title: string;
+    lastModified: string;
+    resumeType?: string;
+  };
 }
 
 export interface ResumeScoreResult {
@@ -132,14 +156,6 @@ export const masterResumeService = {
   listImports: () => api.get<ResumeImportRecord[]>("/master-resume/imports"),
   createProfileFromImport: (data: { importId: string; name?: string; isActive?: boolean; useForAi?: boolean; isDefault?: boolean }) =>
     api.post<MasterResumeProfile>("/master-resume/profiles/from-import", data),
-
-  parseLinkedIn: (data: { url: string; profileName?: string; createProfile?: boolean; isActive?: boolean; useForAi?: boolean; isDefault?: boolean }) =>
-    api.post<{
-      importId: string;
-      rawText: string;
-      parsed: Record<string, unknown>;
-      profile?: MasterResumeProfile | null;
-    }>("/ai/parse-linkedin", data),
 
   parseResume: (data: { fileName: string; mimeType: string; base64: string; profileName?: string; createProfile?: boolean; isActive?: boolean; useForAi?: boolean; isDefault?: boolean }) =>
     api.post<{

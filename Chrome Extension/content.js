@@ -50,6 +50,86 @@
     return { salaryMin: null, salaryMax: null };
   }
 
+  function inferJobType(...values) {
+    const raw = values.filter(Boolean).join(" ").toLowerCase();
+    if (!raw) return null;
+    if (/(full[\s-]?time|permanent)/i.test(raw)) return "full-time";
+    if (/(part[\s-]?time)/i.test(raw)) return "part-time";
+    if (/(contract|contractor|consultant|temporary|temp|1099)/i.test(raw)) return "contract";
+    if (/(intern|internship|apprentice)/i.test(raw)) return "internship";
+    if (/(freelance|gig|project[- ]based)/i.test(raw)) return "freelance";
+    return null;
+  }
+
+  function inferPaymentType(...values) {
+    const raw = values.filter(Boolean).join(" ").toLowerCase();
+    if (!raw) return null;
+    if (/\bper hour\b|\/hr\b|\/hour\b|\bhourly\b/.test(raw)) return "hourly";
+    if (/\bper day\b|\/day\b|\bdaily\b/.test(raw)) return "daily";
+    if (/\bper week\b|\/week\b|\bweekly\b/.test(raw)) return "weekly";
+    if (/\bper month\b|\/month\b|\bmonthly\b/.test(raw)) return "monthly";
+    if (/\bper year\b|\/year\b|\byearly\b|\bannual\b|\bannually\b/.test(raw)) return "yearly";
+    if (/\bper project\b|\bproject[- ]based\b/.test(raw)) return "project";
+    return null;
+  }
+
+  function inferWorkArrangement(location, title, description) {
+    const raw = `${location ?? ""} ${title ?? ""} ${description ?? ""}`.toLowerCase();
+    if (!raw.trim()) return null;
+    if (/\bhybrid\b/.test(raw)) return "hybrid";
+    if (/\bremote\b|\bwork from home\b|\bwfh\b|\btelecommute\b|\btelework\b/.test(raw)) return "remote";
+    if (/\bonsite\b|\bon-site\b|\bin office\b|\bin-office\b/.test(raw)) return "onsite";
+    return null;
+  }
+
+  function inferContractFlag(jobType, ...values) {
+    const raw = [jobType, ...values].filter(Boolean).join(" ").toLowerCase();
+    if (!raw) return null;
+    if (/\bcontract\b|\bcontractor\b|\bconsultant\b|\btemporary\b|\btemp\b|\b1099\b|\bfreelance\b/.test(raw)) return true;
+    if (/\bfull[\s-]?time\b|\bpart[\s-]?time\b|\bpermanent\b|\bw2\b|\binternship\b/.test(raw)) return false;
+    return null;
+  }
+
+  function buildJobMeta({
+    title,
+    company,
+    location,
+    description,
+    remote,
+    salaryMin,
+    salaryMax,
+    salaryText,
+    jobType,
+    companyAddress,
+    workLocation,
+  }) {
+    const normalizedJobType = jobType ?? inferJobType(title, description, salaryText, location);
+    const workArrangement = remote ? "remote" : (inferWorkArrangement(location, title, description) ?? "onsite");
+    const paymentType = inferPaymentType(salaryText, description, normalizedJobType);
+    const compensationText =
+      salaryText ||
+      ((salaryMin || salaryMax)
+        ? [salaryMin ? `$${salaryMin}` : null, salaryMax ? `$${salaryMax}` : null].filter(Boolean).join(" - ")
+        : null);
+
+    return {
+      jobMeta: {
+        title,
+        company,
+        workLocation: workLocation ?? location ?? null,
+        companyAddress: companyAddress ?? location ?? null,
+        workArrangement,
+        paymentType,
+        compensationText,
+        isContract: inferContractFlag(normalizedJobType, title, description, salaryText),
+        employmentType: normalizedJobType,
+        salaryMin: salaryMin ?? null,
+        salaryMax: salaryMax ?? null,
+        remote: Boolean(remote),
+      },
+    };
+  }
+
   function detectRemote(location, title, description) {
     // Only check title and location — descriptions often mention "remote" tools
     // or "remote team" on in-office roles, causing false positives.
@@ -110,7 +190,39 @@
           }
         }
 
-        return { title, company, location, description, remote, salaryMin, salaryMax };
+        const employmentType = Array.isArray(posting.employmentType) ? posting.employmentType[0] : posting.employmentType;
+        const companyAddress = posting.jobLocation?.address
+          ? [
+              posting.jobLocation.address.streetAddress,
+              posting.jobLocation.address.addressLocality,
+              posting.jobLocation.address.addressRegion,
+              posting.jobLocation.address.postalCode,
+              posting.jobLocation.address.addressCountry,
+            ].filter(Boolean).join(", ")
+          : location;
+
+        return {
+          title,
+          company,
+          location,
+          description,
+          remote,
+          salaryMin,
+          salaryMax,
+          jobType: inferJobType(employmentType, description, title),
+          rawData: buildJobMeta({
+            title,
+            company,
+            location,
+            description,
+            remote,
+            salaryMin,
+            salaryMax,
+            salaryText: typeof posting.baseSalary === "string" ? posting.baseSalary : null,
+            jobType: inferJobType(employmentType, description, title),
+            companyAddress,
+          }),
+        };
       } catch { /* continue */ }
     }
     return null;
@@ -196,6 +308,11 @@
       ) ??
       firstContains("job-insight--highlight", "compensation__salary");
     const { salaryMin, salaryMax } = parseSalary(salaryEl);
+    const insightText = [...document.querySelectorAll(".job-details-jobs-unified-top-card__job-insight, .job-details-jobs-unified-top-card__job-insight--highlight, .jobs-unified-top-card__job-insight")]
+      .map((el) => el.textContent?.trim() ?? "")
+      .filter(Boolean)
+      .join(" ");
+    const jobType = inferJobType(insightText, title, description, salaryEl);
 
     // Extract LinkedIn job ID for deduplication
     const jobIdMatch = location.href.match(/\/jobs\/view\/(\d+)/);
@@ -206,9 +323,21 @@
       company,
       location: locationRaw,
       description,
+      jobType,
       salaryMin,
       salaryMax,
       remote: detectRemote(locationRaw, title, description),
+      rawData: buildJobMeta({
+        title,
+        company,
+        location: locationRaw,
+        description,
+        remote: detectRemote(locationRaw, title, description),
+        salaryMin,
+        salaryMax,
+        salaryText: salaryEl,
+        jobType,
+      }),
       externalId,
       source: "linkedin",
       sourceUrl: window.location.href,
@@ -241,6 +370,7 @@
       "[data-testid='attribute_snippet_testid']"
     );
     const { salaryMin, salaryMax } = parseSalary(salaryEl);
+    const jobType = inferJobType(salaryEl, title, description);
 
     // Extract Indeed job key for deduplication
     const jkMatch = window.location.search.match(/[?&]jk=([a-f0-9]+)/i);
@@ -251,9 +381,21 @@
       company,
       location: locationRaw,
       description,
+      jobType,
       salaryMin,
       salaryMax,
       remote: detectRemote(locationRaw, title, description),
+      rawData: buildJobMeta({
+        title,
+        company,
+        location: locationRaw,
+        description,
+        remote: detectRemote(locationRaw, title, description),
+        salaryMin,
+        salaryMax,
+        salaryText: salaryEl,
+        jobType,
+      }),
       externalId,
       source: "indeed",
       sourceUrl: window.location.href,
@@ -284,6 +426,11 @@
 
     const salaryEl = firstText("[data-test='salary-estimate']", ".salary-estimate");
     const { salaryMin, salaryMax } = parseSalary(salaryEl);
+    const detailText = [...document.querySelectorAll("[data-test='detail-item'], .job-search-keyword-pill")]
+      .map((el) => el.textContent?.trim() ?? "")
+      .filter(Boolean)
+      .join(" ");
+    const jobType = inferJobType(detailText, salaryEl, title, description);
 
     // Glassdoor job listing ID
     const idMatch = window.location.pathname.match(/(?:jl|JV_IC|GD_JOB)[_-]?(\d+)/i);
@@ -294,9 +441,21 @@
       company,
       location: locationRaw,
       description,
+      jobType,
       salaryMin,
       salaryMax,
       remote: detectRemote(locationRaw, title, description),
+      rawData: buildJobMeta({
+        title,
+        company,
+        location: locationRaw,
+        description,
+        remote: detectRemote(locationRaw, title, description),
+        salaryMin,
+        salaryMax,
+        salaryText: salaryEl,
+        jobType,
+      }),
       externalId,
       source: "glassdoor",
       sourceUrl: window.location.href,
@@ -311,12 +470,24 @@
     const description = descEl ? descEl.innerText.trim() : null;
     const salaryEl = firstText("[class*='salary']", ".compensation_guesses");
     const { salaryMin, salaryMax } = parseSalary(salaryEl);
+    const jobType = inferJobType(salaryEl, title, description);
     const idMatch = window.location.pathname.match(/\/jobs\/(\d+)/);
     const externalId = idMatch ? `ziprecruiter_${idMatch[1]}` : null;
 
     return {
-      title, company, location: locationRaw, description, salaryMin, salaryMax,
+      title, company, location: locationRaw, description, jobType, salaryMin, salaryMax,
       remote: detectRemote(locationRaw, title, description),
+      rawData: buildJobMeta({
+        title,
+        company,
+        location: locationRaw,
+        description,
+        remote: detectRemote(locationRaw, title, description),
+        salaryMin,
+        salaryMax,
+        salaryText: salaryEl,
+        jobType,
+      }),
       externalId, source: "ziprecruiter", sourceUrl: window.location.href,
     };
   }
@@ -332,10 +503,23 @@
     const description = descEl ? descEl.innerText.trim() : null;
     const idMatch = window.location.pathname.match(/\/([0-9a-f-]{36})/i);
     const externalId = idMatch ? `lever_${idMatch[1]}` : null;
+    const categoriesText = firstText(".posting-categories", ".posting-categories .sort-by-time");
+    const jobType = inferJobType(categoriesText, title, description);
 
     return {
-      title, company, location: locationRaw, description, salaryMin: null, salaryMax: null,
+      title, company, location: locationRaw, description, jobType, salaryMin: null, salaryMax: null,
       remote: detectRemote(locationRaw, title, description),
+      rawData: buildJobMeta({
+        title,
+        company,
+        location: locationRaw,
+        description,
+        remote: detectRemote(locationRaw, title, description),
+        salaryMin: null,
+        salaryMax: null,
+        salaryText: null,
+        jobType,
+      }),
       externalId, source: "lever", sourceUrl: window.location.href,
     };
   }
@@ -351,10 +535,23 @@
     const description = descEl ? descEl.innerText.trim() : null;
     const idMatch = window.location.pathname.match(/\/(\d+)(?:\?|$)/);
     const externalId = idMatch ? `greenhouse_${idMatch[1]}` : null;
+    const metaText = firstText(".job__meta", ".header");
+    const jobType = inferJobType(metaText, title, description);
 
     return {
-      title, company, location: locationRaw, description, salaryMin: null, salaryMax: null,
+      title, company, location: locationRaw, description, jobType, salaryMin: null, salaryMax: null,
       remote: detectRemote(locationRaw, title, description),
+      rawData: buildJobMeta({
+        title,
+        company,
+        location: locationRaw,
+        description,
+        remote: detectRemote(locationRaw, title, description),
+        salaryMin: null,
+        salaryMax: null,
+        salaryText: null,
+        jobType,
+      }),
       externalId, source: "greenhouse", sourceUrl: window.location.href,
     };
   }
@@ -373,10 +570,23 @@
       "[data-automation-id='jobPostingDescription']",
     );
     const description = descEl ? descEl.innerText.trim() : null;
+    const detailsText = firstText("[data-automation-id='job-details']", "[data-automation-id='jobPostingDescription']");
+    const jobType = inferJobType(detailsText, title, description);
 
     return {
-      title, company, location: locationRaw, description, salaryMin: null, salaryMax: null,
+      title, company, location: locationRaw, description, jobType, salaryMin: null, salaryMax: null,
       remote: detectRemote(locationRaw, title, description),
+      rawData: buildJobMeta({
+        title,
+        company,
+        location: locationRaw,
+        description,
+        remote: detectRemote(locationRaw, title, description),
+        salaryMin: null,
+        salaryMax: null,
+        salaryText: null,
+        jobType,
+      }),
       externalId: null, source: "workday", sourceUrl: window.location.href,
     };
   }
@@ -431,9 +641,21 @@
       company: companyGuess,
       location: locationGuess,
       description,
+      jobType: inferJobType(title, description, locationGuess),
       salaryMin: null,
       salaryMax: null,
       remote: detectRemote(locationGuess, title, description),
+      rawData: buildJobMeta({
+        title,
+        company: companyGuess,
+        location: locationGuess,
+        description,
+        remote: detectRemote(locationGuess, title, description),
+        salaryMin: null,
+        salaryMax: null,
+        salaryText: null,
+        jobType: inferJobType(title, description, locationGuess),
+      }),
       externalId: null,
       source: slugify(window.location.href),
       sourceUrl: window.location.href,

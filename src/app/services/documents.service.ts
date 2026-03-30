@@ -13,6 +13,7 @@ export interface DocumentItem {
   version: number;
   jobTitle?: string;
   company?: string;
+  location?: string;
   lastModified: string;
   tags: string[];
 }
@@ -24,12 +25,30 @@ export interface DocumentDetail extends DocumentItem {
   versions: { version_no: number; change_summary: string; created_at: string }[];
 }
 
+export interface UpdateDocumentResult {
+  message: string;
+  document: {
+    id: string;
+    title: string;
+    version: number;
+    contentText: string;
+    contentHtml: string;
+    lastModified: string;
+  };
+}
+
 export const documentsService = {
   list: (kind?: string): Promise<DocumentItem[]> =>
     api.get<DocumentItem[]>(`/documents${kind ? `?kind=${kind}` : ""}`),
 
   get: (id: string): Promise<DocumentDetail> =>
     api.get<DocumentDetail>(`/documents/${id}`),
+
+  update: (
+    id: string,
+    data: { title?: string; contentHtml: string; changeSummary?: string }
+  ): Promise<UpdateDocumentResult> =>
+    api.put<UpdateDocumentResult>(`/documents/${id}`, data),
 
   downloadUrl: (id: string) => `/documents/${id}/download`,
 
