@@ -898,12 +898,11 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
 
           <div className="mt-4">
             <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Professional Summary</Label>
-            <Textarea
+            <RichTextEditor
               value={draft.summary ?? ""}
-              onChange={(event) => updateDraft("summary", event.target.value)}
-              rows={5}
-              className="border-[#1F2937] bg-[#0B0F14] text-white"
+              onChange={(html) => updateDraft("summary", html)}
               placeholder="Capture the senior-level positioning, domain strengths, and value proposition this profile should represent."
+              minRows={5}
             />
           </div>
           </fieldset>

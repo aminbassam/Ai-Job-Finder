@@ -630,9 +630,10 @@ export async function getMasterResumeContextForProfile(userId: string, profileId
   if (!aggregate) return null;
 
   const lines: string[] = [];
+  const stripHtml = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   lines.push(`Master resume profile: ${aggregate.name}`);
   if (aggregate.targetRoles.length > 0) lines.push(`Target roles: ${aggregate.targetRoles.join(", ")}`);
-  if (aggregate.summary) lines.push(`Summary: ${aggregate.summary}`);
+  if (aggregate.summary) lines.push(`Summary: ${stripHtml(aggregate.summary)}`);
   if (aggregate.experienceYears > 0) lines.push(`Experience years: ${aggregate.experienceYears}`);
   if (aggregate.skills.core.length > 0) lines.push(`Core skills: ${aggregate.skills.core.join(", ")}`);
   if (aggregate.skills.tools.length > 0) lines.push(`Tools: ${aggregate.skills.tools.join(", ")}`);
@@ -652,12 +653,12 @@ export async function getMasterResumeContextForProfile(userId: string, profileId
   for (const experience of aggregate.experiences.slice(0, 6)) {
     lines.push(`Experience: ${experience.title} at ${experience.company}`);
     for (const bullet of experience.bullets.slice(0, 4)) {
-      if (bullet.description) lines.push(`- ${bullet.description}`);
+      if (bullet.description) lines.push(`- ${stripHtml(bullet.description)}`);
     }
   }
 
   for (const section of aggregate.customSections.slice(0, 6)) {
-    const sectionParts = [section.description];
+    const sectionParts = [stripHtml(section.description)];
     if (section.tools.length > 0) sectionParts.push(`Tools: ${section.tools.join(", ")}`);
     if (section.keywords.length > 0) sectionParts.push(`Keywords: ${section.keywords.join(", ")}`);
     lines.push(`${section.name}: ${sectionParts.filter(Boolean).join(" | ")}`);
