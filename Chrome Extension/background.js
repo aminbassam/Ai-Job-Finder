@@ -54,14 +54,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const handle = async () => {
     switch (message.type) {
 
-      // Login with email + password
+      // Login with email/username + password
       case "LOGIN": {
-        const { email, password, apiUrl } = message;
+        const { identifier, email, password, apiUrl } = message;
+        const normalizedIdentifier = String(identifier ?? email ?? "").trim();
         const base = (apiUrl ?? DEFAULT_API_URL).replace(/\/$/, "");
         const res = await fetch(`${base}/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ identifier: normalizedIdentifier, email: normalizedIdentifier, password }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json?.message ?? "Login failed.");

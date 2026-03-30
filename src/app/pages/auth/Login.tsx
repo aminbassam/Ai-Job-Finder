@@ -9,7 +9,7 @@ import { Button } from "../../components/ui/button";
 import { useAuth } from "../../contexts/AuthContext";
 
 interface LoginFormValues {
-  email: string;
+  identifier: string;
   password: string;
 }
 
@@ -31,11 +31,11 @@ export function Login() {
   const onSubmit = async (data: LoginFormValues) => {
     setServerError("");
     try {
-      await login(data.email, data.password);
+      await login(data.identifier, data.password);
       navigate(from, { replace: true });
     } catch (err) {
       setServerError(
-        err instanceof Error ? err.message : "Invalid email or password."
+        err instanceof Error ? err.message : "Invalid email, username, or password."
       );
     }
   };
@@ -67,29 +67,26 @@ export function Login() {
           )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
-            {/* Email */}
+            {/* Email or username */}
             <div>
               <Label className="text-[13px] text-[#9CA3AF] mb-2 block">
-                Email
+                Email or username
               </Label>
               <Input
-                type="email"
-                placeholder="john@example.com"
-                autoComplete="email"
+                type="text"
+                placeholder="john@example.com or john_doe"
+                autoComplete="username"
                 className={`bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#9CA3AF] h-11 ${
-                  errors.email ? "border-[#EF4444]" : ""
+                  errors.identifier ? "border-[#EF4444]" : ""
                 }`}
-                {...register("email", {
-                  required: "Email is required.",
-                  pattern: {
-                    value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-                    message: "Enter a valid email address.",
-                  },
+                {...register("identifier", {
+                  required: "Email or username is required.",
+                  validate: (value) => value.trim().length > 0 || "Email or username is required.",
                 })}
               />
-              {errors.email && (
+              {errors.identifier && (
                 <p className="text-[11px] text-[#EF4444] mt-1">
-                  {errors.email.message}
+                  {errors.identifier.message}
                 </p>
               )}
             </div>

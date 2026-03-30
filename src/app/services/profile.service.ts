@@ -3,6 +3,7 @@ import { api } from "./api";
 export interface ProfileData {
   id: string;
   email: string;
+  username?: string;
   firstName: string;
   lastName: string;
   location?: string;
@@ -18,6 +19,7 @@ export interface ProfileData {
 }
 
 export interface UpdateProfileRequest {
+  username?: string | null;
   firstName?: string;
   lastName?: string;
   location?: string;

@@ -103,7 +103,7 @@ function showMain() {
 }
 
 async function handleLogin() {
-  const email = $("login-email").value.trim();
+  const identifier = $("login-email").value.trim();
   const password = $("login-password").value;
   const apiUrl = $("login-api-url").value.trim() || "http://localhost:3001/api";
 
@@ -112,7 +112,7 @@ async function handleLogin() {
   $("login-spinner").classList.remove("hidden");
   $("btn-login").disabled = true;
 
-  const res = await send({ type: "LOGIN", email, password, apiUrl });
+  const res = await send({ type: "LOGIN", identifier, email: identifier, password, apiUrl });
 
   $("login-label").textContent = "Sign In";
   $("login-spinner").classList.add("hidden");

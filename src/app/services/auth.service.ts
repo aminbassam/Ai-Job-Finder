@@ -13,7 +13,7 @@
 import { api } from "./api";
 
 export interface LoginRequest {
-  email: string;
+  identifier: string;
   password: string;
 }
 
@@ -38,6 +38,7 @@ export interface AuthResponse {
   user: {
     id: string;
     email: string;
+    username?: string;
     firstName: string;
     lastName: string;
     plan: "free" | "pro" | "agency";
@@ -51,7 +52,7 @@ export interface AuthResponse {
 
 export const authService = {
   login: (data: LoginRequest): Promise<AuthResponse> =>
-    api.post<AuthResponse>("/auth/login", data),
+    api.post<AuthResponse>("/auth/login", { identifier: data.identifier, password: data.password }),
 
   signup: (data: SignupRequest): Promise<AuthResponse> =>
     api.post<AuthResponse>("/auth/signup", data),
@@ -70,4 +71,7 @@ export const authService = {
 
   verifyEmail: (code: string): Promise<{ user: AuthResponse["user"] }> =>
     api.post<{ user: AuthResponse["user"] }>("/auth/verify-email", { code }),
+
+  changePassword: (data: { currentPassword: string; newPassword: string }): Promise<{ message: string }> =>
+    api.patch<{ message: string }>("/auth/change-password", data),
 };

@@ -73,10 +73,10 @@ async function createVerificationToken(userId: string): Promise<string> {
 
 async function buildUserResponse(userId: string) {
   const user = await queryOne<{
-    id: string; email: string; first_name: string; last_name: string;
+    id: string; email: string; username: string | null; first_name: string; last_name: string;
     location_text: string | null; email_verified_at: string | null; is_admin: boolean;
   }>(
-    `SELECT id, email, first_name, last_name, location_text, email_verified_at, is_admin
+    `SELECT id, email, username, first_name, last_name, location_text, email_verified_at, is_admin
      FROM account_users WHERE id = $1`,
     [userId]
   );
@@ -103,6 +103,7 @@ async function buildUserResponse(userId: string) {
   return {
     id: user.id,
     email: user.email,
+    username: user.username ?? undefined,
     firstName: user.first_name,
     lastName: user.last_name,
     location: user.location_text ?? undefined,
@@ -182,16 +183,28 @@ router.post("/signup", validate(signupSchema), async (req: Request, res: Respons
 // ── POST /api/auth/login ─────────────────────────────────────────────────────
 
 const loginSchema = z.object({
-  email:    z.string().email().toLowerCase(),
+  identifier: z.string().trim().min(1).max(320).optional(),
+  email: z.string().trim().min(1).max(320).optional(),
   password: z.string().min(1),
+}).superRefine((value, ctx) => {
+  if (!(value.identifier ?? value.email)?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["identifier"],
+      message: "Email or username is required.",
+    });
+  }
 });
 
 router.post("/login", validate(loginSchema), async (req: Request, res: Response): Promise<void> => {
-  const { email, password } = req.body as z.infer<typeof loginSchema>;
+  const { password } = req.body as z.infer<typeof loginSchema>;
+  const identifier = (req.body.identifier ?? req.body.email ?? "").trim().toLowerCase();
 
   const user = await queryOne<{ id: string; password_hash: string | null; is_active: boolean }>(
-    `SELECT id, password_hash, is_active FROM account_users WHERE email = $1`,
-    [email]
+    `SELECT id, password_hash, is_active
+     FROM account_users
+     WHERE email = $1 OR username = $1`,
+    [identifier]
   );
 
   // Constant-time comparison even when user doesn't exist
@@ -200,7 +213,7 @@ router.post("/login", validate(loginSchema), async (req: Request, res: Response)
   const match = await bcrypt.compare(password, hashToCheck);
 
   if (!user || !match || !user.is_active) {
-    res.status(401).json({ message: "Invalid email or password." });
+    res.status(401).json({ message: "Invalid email, username, or password." });
     return;
   }
 
@@ -215,6 +228,78 @@ router.post("/login", validate(loginSchema), async (req: Request, res: Response)
   } catch (err) {
     console.error("[auth/login]", err);
     res.status(500).json({ message: "Login failed. Please try again." });
+  }
+});
+
+// ── PATCH /api/auth/change-password ─────────────────────────────────────────
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required."),
+  newPassword: z.string().min(8).max(128),
+});
+
+router.patch("/change-password", requireAuth, validate(changePasswordSchema), async (req: Request, res: Response): Promise<void> => {
+  const { currentPassword, newPassword } = req.body as z.infer<typeof changePasswordSchema>;
+
+  if (currentPassword === newPassword) {
+    res.status(400).json({ message: "New password must be different from your current password." });
+    return;
+  }
+
+  const user = await queryOne<{ password_hash: string | null }>(
+    `SELECT password_hash FROM account_users WHERE id = $1 AND is_active = true`,
+    [req.userId]
+  );
+
+  if (!user?.password_hash) {
+    res.status(400).json({ message: "Password changes are unavailable for this account." });
+    return;
+  }
+
+  const valid = await bcrypt.compare(currentPassword, user.password_hash);
+  if (!valid) {
+    res.status(400).json({ message: "Current password is incorrect." });
+    return;
+  }
+
+  const newPasswordHash = await bcrypt.hash(newPassword, 12);
+  const header = req.headers.authorization ?? "";
+  const rawToken = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const currentTokenHash = rawToken ? hashToken(rawToken) : null;
+
+  try {
+    await transaction(async (q) => {
+      await q(
+        `UPDATE account_users
+         SET password_hash = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [newPasswordHash, req.userId]
+      );
+
+      if (currentTokenHash) {
+        await q(
+          `UPDATE user_sessions
+           SET revoked_at = NOW()
+           WHERE user_id = $1
+             AND revoked_at IS NULL
+             AND token_hash <> $2`,
+          [req.userId, currentTokenHash]
+        );
+      } else {
+        await q(
+          `UPDATE user_sessions
+           SET revoked_at = NOW()
+           WHERE user_id = $1
+             AND revoked_at IS NULL`,
+          [req.userId]
+        );
+      }
+    });
+
+    res.json({ message: "Password updated successfully." });
+  } catch (err) {
+    console.error("[auth/change-password]", err);
+    res.status(500).json({ message: "Failed to update password." });
   }
 });
 

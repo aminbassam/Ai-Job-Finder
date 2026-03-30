@@ -30,6 +30,7 @@ $$;
 CREATE TABLE account_users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email citext NOT NULL UNIQUE,
+  username citext UNIQUE,
   password_hash text,
   auth_source auth_provider NOT NULL DEFAULT 'local',
   first_name text NOT NULL,
@@ -46,6 +47,10 @@ CREATE TABLE account_users (
   updated_at timestamptz NOT NULL DEFAULT NOW(),
   CONSTRAINT local_auth_requires_password CHECK (
     auth_source <> 'local' OR password_hash IS NOT NULL
+  ),
+  CONSTRAINT username_format_valid CHECK (
+    username IS NULL
+    OR username ~ '^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30}[A-Za-z0-9])?$'
   )
 );
 

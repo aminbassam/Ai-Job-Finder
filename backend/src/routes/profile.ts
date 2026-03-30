@@ -6,14 +6,30 @@ import { validate } from "../middleware/validate";
 
 const router = Router();
 router.use(requireAuth);
+const USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30}[A-Za-z0-9])?$/;
 
 // ── GET /api/profile ─────────────────────────────────────────────────────────
 
 router.get("/", async (req: Request, res: Response): Promise<void> => {
   try {
-    const user = await queryOne<Record<string, unknown>>(
+    const user = await queryOne<{
+      id: string;
+      email: string;
+      username: string | null;
+      first_name: string;
+      last_name: string;
+      location_text: string | null;
+      current_job_title: string | null;
+      linkedin_url: string | null;
+      professional_summary: string | null;
+      years_experience: number | null;
+      preferred_location_text: string | null;
+      remote_only: boolean | null;
+      min_salary_usd: number | null;
+      max_salary_usd: number | null;
+    }>(
       `SELECT
-         u.id, u.email, u.first_name, u.last_name, u.location_text,
+         u.id, u.email, u.username, u.first_name, u.last_name, u.location_text,
          u.current_job_title, u.linkedin_url,
          p.professional_summary, p.years_experience,
          p.preferred_location_text, p.remote_only,
@@ -37,6 +53,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
     res.json({
       id:               user.id,
       email:            user.email,
+      username:         user.username,
       firstName:        user.first_name,
       lastName:         user.last_name,
       location:         user.location_text,
@@ -59,6 +76,15 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
 // ── PUT /api/profile ─────────────────────────────────────────────────────────
 
 const updateProfileSchema = z.object({
+  username:        z.union([
+    z.string()
+      .trim()
+      .min(3, "Username must be at least 3 characters.")
+      .max(32, "Username must be 32 characters or less.")
+      .regex(USERNAME_PATTERN, "Use 3-32 letters, numbers, dots, hyphens, or underscores."),
+    z.literal(""),
+    z.null(),
+  ]).optional(),
   firstName:       z.string().min(1, "First name is required.").max(100).trim().optional(),
   lastName:        z.string().min(1, "Last name is required.").max(100).trim().optional(),
   location:        z.string().max(200).trim().optional().nullable(),
@@ -84,22 +110,44 @@ router.put("/", validate(updateProfileSchema), async (req: Request, res: Respons
     if (
       data.firstName     !== undefined ||
       data.lastName      !== undefined ||
+      data.username      !== undefined ||
       data.location      !== undefined ||
       data.currentTitle  !== undefined ||
       data.linkedinUrl   !== undefined
     ) {
+      const hasUsernameUpdate = data.username !== undefined;
+      const normalizedUsername = data.username === undefined
+        ? undefined
+        : (typeof data.username === "string" && data.username.trim()
+          ? data.username.trim().toLowerCase()
+          : null);
+
+      if (normalizedUsername) {
+        const existing = await queryOne<{ id: string }>(
+          `SELECT id FROM account_users WHERE username = $1 AND id <> $2`,
+          [normalizedUsername, req.userId]
+        );
+        if (existing) {
+          res.status(409).json({ message: "That username is already taken." });
+          return;
+        }
+      }
+
       await query(
         `UPDATE account_users SET
            first_name        = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE first_name END,
            last_name         = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE last_name END,
-           location_text     = COALESCE($4, location_text),
-           current_job_title = COALESCE($5, current_job_title),
-           linkedin_url      = $6
+           username          = CASE WHEN $4::boolean THEN $5::citext ELSE username END,
+           location_text     = COALESCE($6, location_text),
+           current_job_title = COALESCE($7, current_job_title),
+           linkedin_url      = $8
          WHERE id = $1`,
         [
           req.userId,
           data.firstName  ?? null,
           data.lastName   ?? null,
+          hasUsernameUpdate,
+          normalizedUsername ?? null,
           data.location   ?? null,
           data.currentTitle !== undefined ? (data.currentTitle ?? null) : null,
           data.linkedinUrl !== undefined  ? (data.linkedinUrl  ?? null) : undefined,

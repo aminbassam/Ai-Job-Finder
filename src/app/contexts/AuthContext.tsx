@@ -10,6 +10,7 @@ import { authService, type SignupRequest } from "../services/auth.service";
 export interface User {
   id: string;
   email: string;
+  username?: string;
   firstName: string;
   lastName: string;
   plan: "free" | "pro" | "agency";
@@ -36,7 +37,7 @@ type AuthAction =
 export type { SignupRequest };
 
 interface AuthContextType extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
   signup: (data: SignupRequest) => Promise<void>;
   logout: () => void;
   updateUser: (data: Partial<User>) => void;
@@ -99,10 +100,10 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (identifier: string, password: string) => {
     dispatch({ type: "AUTH_START" });
     try {
-      const { token, user } = await authService.login({ email, password });
+      const { token, user } = await authService.login({ identifier, password });
       saveSession(user as User, token);
       dispatch({ type: "AUTH_SUCCESS", payload: { user: user as User, token } });
     } catch (err) {

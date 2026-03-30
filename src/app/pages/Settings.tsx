@@ -13,7 +13,10 @@ import { Button } from "../components/ui/button";
 import { Switch } from "../components/ui/switch";
 import { Badge } from "../components/ui/badge";
 import { useAuth } from "../contexts/AuthContext";
+import { authService } from "../services/auth.service";
 import { profileService, type ProfileData } from "../services/profile.service";
+
+const USERNAME_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{1,30}[A-Za-z0-9])?$/;
 
 export function Settings() {
   const { user, updateUser } = useAuth();
@@ -36,9 +39,16 @@ export function Settings() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [location, setLocation] = useState("");
   const [currentTitle, setCurrentTitle] = useState("");
   const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [passwordCurrent, setPasswordCurrent] = useState("");
+  const [passwordNext, setPasswordNext] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
 
   useEffect(() => {
     profileService
@@ -48,6 +58,7 @@ export function Settings() {
         setFirstName(data.firstName ?? "");
         setLastName(data.lastName ?? "");
         setEmail(data.email ?? "");
+        setUsername(data.username ?? "");
         setLocation(data.location ?? "");
         setCurrentTitle(data.currentTitle ?? "");
         setLinkedinUrl(data.linkedinUrl ?? "");
@@ -57,6 +68,7 @@ export function Settings() {
         setFirstName(user?.firstName ?? "");
         setLastName(user?.lastName ?? "");
         setEmail(user?.email ?? "");
+        setUsername(user?.username ?? "");
         setLocation(user?.location ?? "");
         setProfileError(err.message);
       })
@@ -72,6 +84,9 @@ export function Settings() {
     const errors: Record<string, string> = {};
     if (!firstName.trim()) errors.firstName = "First name is required.";
     if (!lastName.trim())  errors.lastName  = "Last name is required.";
+    if (username.trim() && !USERNAME_PATTERN.test(username.trim())) {
+      errors.username = "Use 3-32 letters, numbers, dots, hyphens, or underscores.";
+    }
     if (linkedinUrl && !/^https?:\/\//i.test(linkedinUrl)) {
       errors.linkedinUrl = "Must be a valid URL starting with https://";
     }
@@ -85,13 +100,20 @@ export function Settings() {
     setProfileSuccess(false);
     try {
       await profileService.updateProfile({
+        username: username.trim() || null,
         firstName: firstName.trim(),
         lastName:  lastName.trim(),
         location:  location  || null,
         currentTitle: currentTitle || null,
         linkedinUrl:  linkedinUrl  || null,
       });
-      updateUser({ firstName: firstName.trim(), lastName: lastName.trim(), location });
+      updateUser({
+        username: username.trim() || undefined,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        location,
+      });
+      setProfile((prev) => (prev ? { ...prev, username: username.trim() || undefined, firstName: firstName.trim(), lastName: lastName.trim(), location } : prev));
       setProfileSuccess(true);
     } catch (err) {
       // Surface structured validation errors from backend if present
@@ -99,6 +121,44 @@ export function Settings() {
       setProfileError(msg);
     } finally {
       setProfileSaving(false);
+    }
+  }
+
+  async function handlePasswordSave() {
+    const errors: Record<string, string> = {};
+    if (!passwordCurrent) errors.passwordCurrent = "Current password is required.";
+    if (passwordNext.length < 8) errors.passwordNext = "New password must be at least 8 characters.";
+    if (passwordNext !== passwordConfirm) errors.passwordConfirm = "Passwords do not match.";
+    if (passwordCurrent && passwordNext && passwordCurrent === passwordNext) {
+      errors.passwordNext = "New password must be different from your current password.";
+    }
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors((prev) => ({ ...prev, ...errors }));
+      return;
+    }
+
+    setFieldErrors((prev) => ({
+      ...prev,
+      passwordCurrent: "",
+      passwordNext: "",
+      passwordConfirm: "",
+    }));
+    setPasswordSaving(true);
+    setPasswordError(null);
+    setPasswordSuccess(false);
+    try {
+      await authService.changePassword({
+        currentPassword: passwordCurrent,
+        newPassword: passwordNext,
+      });
+      setPasswordCurrent("");
+      setPasswordNext("");
+      setPasswordConfirm("");
+      setPasswordSuccess(true);
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : "Failed to update password.");
+    } finally {
+      setPasswordSaving(false);
     }
   }
 
@@ -204,6 +264,23 @@ export function Settings() {
                 </div>
 
                 <div>
+                  <Label className="text-[13px] text-[#9CA3AF] mb-2 block">Username</Label>
+                  <Input
+                    value={username}
+                    onChange={(e) => { setUsername(e.target.value); setFieldErrors((p) => ({ ...p, username: "" })); }}
+                    placeholder="Choose a sign-in username"
+                    autoComplete="username"
+                    className={`bg-[#0B0F14] text-white placeholder:text-[#4B5563] ${fieldErrors.username ? "border-[#EF4444]" : "border-[#1F2937]"}`}
+                  />
+                  <p className="mt-1 text-[11px] text-[#4B5563]">
+                    Optional. You can sign in with either your email or this username.
+                  </p>
+                  {fieldErrors.username && (
+                    <p className="text-[11px] text-[#EF4444] mt-1">{fieldErrors.username}</p>
+                  )}
+                </div>
+
+                <div>
                   <Label className="text-[13px] text-[#9CA3AF] mb-2 block">Location</Label>
                   <LocationInput
                     value={location}
@@ -271,6 +348,12 @@ export function Settings() {
                   </span>
                 </div>
                 <div>
+                  <p className="text-[#9CA3AF] mb-1">Username</p>
+                  <span className="text-white font-medium">
+                    {profile.username || "Not set"}
+                  </span>
+                </div>
+                <div>
                   <p className="text-[#9CA3AF] mb-1">Email Verified</p>
                   {user?.emailVerified ? (
                     <Badge className="bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/30 text-[11px]">Verified</Badge>
@@ -281,6 +364,69 @@ export function Settings() {
               </div>
             </Card>
           )}
+
+          <Card className="bg-[#111827] border-[#1F2937] p-6 mt-4 max-w-2xl">
+            <h2 className="text-[16px] font-semibold text-white mb-4">Sign-in & Security</h2>
+            <div className="space-y-4">
+              <div>
+                <Label className="text-[13px] text-[#9CA3AF] mb-2 block">Current Password</Label>
+                <Input
+                  type="password"
+                  value={passwordCurrent}
+                  onChange={(e) => { setPasswordCurrent(e.target.value); setFieldErrors((p) => ({ ...p, passwordCurrent: "" })); }}
+                  autoComplete="current-password"
+                  className={`bg-[#0B0F14] text-white ${fieldErrors.passwordCurrent ? "border-[#EF4444]" : "border-[#1F2937]"}`}
+                />
+                {fieldErrors.passwordCurrent && (
+                  <p className="text-[11px] text-[#EF4444] mt-1">{fieldErrors.passwordCurrent}</p>
+                )}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label className="text-[13px] text-[#9CA3AF] mb-2 block">New Password</Label>
+                  <Input
+                    type="password"
+                    value={passwordNext}
+                    onChange={(e) => { setPasswordNext(e.target.value); setFieldErrors((p) => ({ ...p, passwordNext: "" })); }}
+                    autoComplete="new-password"
+                    className={`bg-[#0B0F14] text-white ${fieldErrors.passwordNext ? "border-[#EF4444]" : "border-[#1F2937]"}`}
+                  />
+                  {fieldErrors.passwordNext && (
+                    <p className="text-[11px] text-[#EF4444] mt-1">{fieldErrors.passwordNext}</p>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-[13px] text-[#9CA3AF] mb-2 block">Confirm New Password</Label>
+                  <Input
+                    type="password"
+                    value={passwordConfirm}
+                    onChange={(e) => { setPasswordConfirm(e.target.value); setFieldErrors((p) => ({ ...p, passwordConfirm: "" })); }}
+                    autoComplete="new-password"
+                    className={`bg-[#0B0F14] text-white ${fieldErrors.passwordConfirm ? "border-[#EF4444]" : "border-[#1F2937]"}`}
+                  />
+                  {fieldErrors.passwordConfirm && (
+                    <p className="text-[11px] text-[#EF4444] mt-1">{fieldErrors.passwordConfirm}</p>
+                  )}
+                </div>
+              </div>
+
+              {passwordError && (
+                <p className="text-[13px] text-[#EF4444]">{passwordError}</p>
+              )}
+              {passwordSuccess && (
+                <p className="text-[13px] text-[#22C55E]">Password updated successfully.</p>
+              )}
+
+              <Button
+                className="bg-[#4F8CFF] hover:bg-[#4F8CFF]/90 text-white"
+                onClick={handlePasswordSave}
+                disabled={passwordSaving}
+              >
+                {passwordSaving ? "Updating…" : "Update Password"}
+              </Button>
+            </div>
+          </Card>
         </TabsContent>
 
         {/* AI Providers Tab */}

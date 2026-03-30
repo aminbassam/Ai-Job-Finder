@@ -34,7 +34,7 @@ async function renderAuthState(auth) {
 }
 
 async function handleLogin() {
-  const email = $("opt-email").value.trim();
+  const identifier = $("opt-email").value.trim();
   const password = $("opt-password").value;
   const apiUrl = $("api-url").value.trim() || "http://localhost:3001/api";
 
@@ -43,7 +43,7 @@ async function handleLogin() {
   $("login-spinner").classList.remove("hidden");
   $("btn-login").disabled = true;
 
-  const res = await send({ type: "LOGIN", email, password, apiUrl });
+  const res = await send({ type: "LOGIN", identifier, email: identifier, password, apiUrl });
 
   $("login-label").textContent = "Sign In";
   $("login-spinner").classList.add("hidden");
