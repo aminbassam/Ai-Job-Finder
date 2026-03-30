@@ -5,6 +5,7 @@
  * Safe to re-run (uses INSERT … ON CONFLICT DO NOTHING).
  */
 import "../config/load-env";
+import { randomBytes } from "crypto";
 import { pool } from "./pool";
 import bcrypt from "bcryptjs";
 import { ensureDemoUserAndSeedData, DEMO_EMAIL, DEMO_PASSWORD, DEMO_USERNAME } from "../services/demo-user";
@@ -228,8 +229,9 @@ async function seed() {
   }
 
   // ── Superadmin account ───────────────────────────────────────────────────────
-  const ADMIN_EMAIL    = "admin@jobflow.ai";
-  const ADMIN_PASSWORD = "Admin@123456";
+  const ADMIN_EMAIL = (process.env.SEED_ADMIN_EMAIL?.trim() || "admin@local.jobflow.test").toLowerCase();
+  const configuredAdminPassword = process.env.SEED_ADMIN_PASSWORD?.trim();
+  const ADMIN_PASSWORD = configuredAdminPassword || randomBytes(18).toString("base64url");
 
   const { rows: existingAdmin } = await pool.query(
     `SELECT id FROM account_users WHERE email = $1`,
@@ -262,6 +264,9 @@ async function seed() {
     console.log("Superadmin created:");
     console.log(`  Email   : ${ADMIN_EMAIL}`);
     console.log(`  Password: ${ADMIN_PASSWORD}`);
+    if (!configuredAdminPassword) {
+      console.log("  Note    : Generated for this seed run. Set SEED_ADMIN_PASSWORD to control it explicitly.");
+    }
   } else {
     console.log(`Superadmin already exists (${ADMIN_EMAIL}) — skipped.`);
   }

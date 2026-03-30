@@ -11,6 +11,7 @@ import { Button } from "../../components/ui/button";
 import { Switch } from "../../components/ui/switch";
 import { Slider } from "../../components/ui/slider";
 import { TagInput } from "../../components/ui/tag-input";
+import { JobTitleTagInput } from "../../components/ui/job-title-tag-input";
 import { profileService } from "../../services/profile.service";
 import { settingsService } from "../../services/settings.service";
 
@@ -120,14 +121,6 @@ function calcScore(f: FormState): { score: number; missing: string[] } {
 }
 
 // ── Suggestions ───────────────────────────────────────────────────────────────
-
-const ROLE_SUGGESTIONS = [
-  "Software Engineer", "Senior Software Engineer", "Full Stack Developer",
-  "Frontend Engineer", "Backend Engineer", "Product Manager",
-  "Senior Product Manager", "Data Scientist", "ML Engineer",
-  "DevOps Engineer", "Engineering Manager", "UX Designer",
-  "Solutions Architect", "QA Engineer", "Data Analyst",
-];
 
 const INDUSTRY_SUGGESTIONS = [
   "Fintech", "SaaS", "E-commerce", "Healthcare", "EdTech",
@@ -577,11 +570,10 @@ export function ResumePreferencesTab() {
           <FieldLabel hint="Roles you're actively applying for — AI uses these for job matching.">
             Desired Roles
           </FieldLabel>
-          <TagInput
+          <JobTitleTagInput
             tags={form.targetRoles}
             onChange={(v) => update("targetRoles", v)}
-            placeholder="Add a role…"
-            suggestions={ROLE_SUGGESTIONS}
+            placeholder="Search from a full job title catalog…"
           />
         </div>
 

@@ -118,6 +118,13 @@ This seeds:
 - tags
 - a superadmin account
 
+Optional before seeding:
+
+- `SEED_ADMIN_EMAIL` to override the local admin email
+- `SEED_ADMIN_PASSWORD` to set a known local admin password
+
+If `SEED_ADMIN_PASSWORD` is not set, the seed script generates a one-time local password and prints it to the backend console.
+
 ### 5. Start the backend
 
 From `backend/`:
@@ -160,8 +167,8 @@ Open:
 
 Seeded admin account:
 
-- Email: `admin@jobflow.ai`
-- Password: `Admin@123456`
+- Check the `npm run db:seed` output for the local admin email and password
+- Or set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` before running the seed
 
 Useful first pages:
 
@@ -174,7 +181,7 @@ Useful first pages:
 ## Recommended Day-One Smoke Test
 
 1. Open `http://localhost:5678`
-2. Sign in with the seeded admin account
+2. Sign in with the seeded admin account from the seed output
 3. Confirm you land in the authenticated app
 4. Open `/settings` and make a small profile change
 5. Open `/agent`

@@ -13,6 +13,7 @@ import { Switch } from "../../components/ui/switch";
 import { Badge } from "../../components/ui/badge";
 import { Slider } from "../../components/ui/slider";
 import { TagInput } from "../../components/ui/tag-input";
+import { JobTitleTagInput } from "../../components/ui/job-title-tag-input";
 import { LocationTagInput } from "../../components/ui/location-tag-input";
 import {
   SearchProfile, ProfileInput, ConnectorConfig, ActivityLog,
@@ -196,13 +197,10 @@ function ProfileForm({
       {/* Job Titles */}
       <div>
         <Label className="text-[12px] text-[#9CA3AF] mb-1.5 block">Target Job Titles</Label>
-        <TagInput
+        <JobTitleTagInput
           tags={form.jobTitles}
           onChange={(v) => upd("jobTitles", v)}
-          placeholder="e.g. Product Manager…"
-          suggestions={["Product Manager", "Senior PM", "Engineering Manager",
-            "Software Engineer", "Frontend Engineer", "Data Scientist",
-            "DevOps Engineer", "UX Designer", "Technical Lead"]}
+          placeholder="Search from a full job title catalog…"
         />
       </div>
 

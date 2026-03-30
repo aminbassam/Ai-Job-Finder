@@ -7,6 +7,7 @@ import { IntegrationsTab } from "./settings/IntegrationsTab";
 import { Card } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Input } from "../components/ui/input";
+import { JobTitleInput } from "../components/ui/job-title-input";
 import { Label } from "../components/ui/label";
 import { LocationInput } from "../components/ui/location-input";
 import { Button } from "../components/ui/button";
@@ -295,11 +296,10 @@ export function Settings() {
 
                 <div>
                   <Label className="text-[13px] text-[#9CA3AF] mb-2 block">Job Title</Label>
-                  <Input
+                  <JobTitleInput
                     value={currentTitle}
-                    onChange={(e) => setCurrentTitle(e.target.value)}
-                    placeholder="e.g. Senior Product Manager"
-                    className="bg-[#0B0F14] border-[#1F2937] text-white placeholder:text-[#4B5563]"
+                    onChange={setCurrentTitle}
+                    placeholder="Search from a full job title catalog…"
                   />
                 </div>
 

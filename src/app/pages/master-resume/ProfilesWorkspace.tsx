@@ -21,6 +21,7 @@ import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
 import { Switch } from "../../components/ui/switch";
 import { TagInput } from "../../components/ui/tag-input";
+import { JobTitleTagInput } from "../../components/ui/job-title-tag-input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
 import {
   masterResumeService,
@@ -913,7 +914,11 @@ export function ProfilesWorkspace({ refreshKey = 0, focusProfileId = null, onAdd
 
           <div className="mt-4">
             <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Target Roles</Label>
-            <TagInput tags={draft.targetRoles} onChange={(tags) => updateDraft("targetRoles", tags)} placeholder="Technical PM, SEO Manager…" />
+            <JobTitleTagInput
+              tags={draft.targetRoles}
+              onChange={(tags) => updateDraft("targetRoles", tags)}
+              placeholder="Search from a full job title catalog…"
+            />
           </div>
 
           <div className="mt-4">

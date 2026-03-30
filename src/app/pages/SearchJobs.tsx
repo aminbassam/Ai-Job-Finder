@@ -28,6 +28,7 @@ import { Switch } from "../components/ui/switch";
 import { Label } from "../components/ui/label";
 import { Slider } from "../components/ui/slider";
 import { TagInput } from "../components/ui/tag-input";
+import { JobTitleTagInput } from "../components/ui/job-title-tag-input";
 import { LocationTagInput } from "../components/ui/location-tag-input";
 
 /* ─────────────────────────────── Types ────────────────────────────────── */
@@ -168,27 +169,6 @@ export function SearchJobs() {
 
   /* Job Titles */
   const [jobTitles, setJobTitles] = useState<string[]>([]);
-  const jobTitleSuggestions = [
-    "Product Manager",
-    "Senior Product Manager",
-    "Engineering Manager",
-    "Software Engineer",
-    "Frontend Engineer",
-    "Backend Engineer",
-    "Full Stack Engineer",
-    "Data Scientist",
-    "Data Engineer",
-    "ML Engineer",
-    "DevOps Engineer",
-    "UX Designer",
-    "UX Researcher",
-    "Marketing Manager",
-    "Growth Manager",
-    "Scrum Master",
-    "Technical Lead",
-    "CTO",
-    "VP of Engineering",
-  ];
 
   /* Experience Level */
   const [expLevels, setExpLevels] = useState<string[]>([]);
@@ -483,11 +463,10 @@ export function SearchJobs() {
                   Target Job Titles{" "}
                   <span className="text-[#4B5563]">— order = priority (first = highest)</span>
                 </Label>
-                <TagInput
+                <JobTitleTagInput
                   tags={jobTitles}
                   onChange={setJobTitles}
-                  placeholder="e.g. Senior Product Manager…"
-                  suggestions={jobTitleSuggestions}
+                  placeholder="Search from a full job title catalog…"
                 />
                 {jobTitles.length === 0 && (
                   <p className="text-[11px] text-[#EF4444]/70 mt-1.5">

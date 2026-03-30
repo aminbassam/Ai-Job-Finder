@@ -14,7 +14,7 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Switch } from "../components/ui/switch";
-import { TagInput } from "../components/ui/tag-input";
+import { JobTitleTagInput } from "../components/ui/job-title-tag-input";
 import { ProfilesWorkspace } from "./master-resume/ProfilesWorkspace";
 import { masterResumeService } from "../services/masterResume.service";
 
@@ -308,7 +308,11 @@ export function Resume() {
                 </div>
                 <div>
                   <Label className="mb-2 block text-[12px] uppercase tracking-wide text-[#9CA3AF]">Target Roles</Label>
-                  <TagInput tags={manualTargetRoles} onChange={setManualTargetRoles} placeholder="Add the roles this profile should target" />
+                  <JobTitleTagInput
+                    tags={manualTargetRoles}
+                    onChange={setManualTargetRoles}
+                    placeholder="Search from a full job title catalog…"
+                  />
                 </div>
                 <div className="flex items-center justify-between rounded-lg border border-[#1F2937] bg-[#111827] px-4 py-3">
                   <div>
