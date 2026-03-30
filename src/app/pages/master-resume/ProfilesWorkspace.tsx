@@ -12,6 +12,7 @@ import {
   Loader2,
   Plus,
   Power,
+  PowerOff,
   Sparkles,
   Trash2,
   Wand2,
@@ -1113,7 +1114,13 @@ export function ProfilesWorkspace({
                             className="h-9 w-9 border-[#374151] bg-[#111827] p-0 text-white hover:bg-[#1F2937]"
                             aria-label={profile.isActive ? "Deactivate profile" : "Activate profile"}
                           >
-                            {statusLoadingId === profile.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                            {statusLoadingId === profile.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : profile.isActive ? (
+                              <PowerOff className="h-4 w-4" />
+                            ) : (
+                              <Power className="h-4 w-4" />
+                            )}
                           </Button>
                         </IconActionTooltip>
                         <IconActionTooltip label="Delete profile">
@@ -1289,7 +1296,13 @@ export function ProfilesWorkspace({
                                   className="h-9 w-9 border-[#374151] bg-[#111827] p-0 text-white hover:bg-[#1F2937]"
                                   aria-label={profile.isActive ? "Deactivate profile" : "Activate profile"}
                                 >
-                                  {statusLoadingId === profile.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                                  {statusLoadingId === profile.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : profile.isActive ? (
+                                    <PowerOff className="h-4 w-4" />
+                                  ) : (
+                                    <Power className="h-4 w-4" />
+                                  )}
                                 </Button>
                               </IconActionTooltip>
                               <IconActionTooltip label="Delete profile">
