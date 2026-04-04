@@ -364,31 +364,41 @@ export async function cleanupExpiredDemoUserData(): Promise<void> {
   );
   if (users.rows.length === 0) return;
 
+  const cutoff = new Date(Date.now() - DEMO_WINDOW_HOURS * 60 * 60 * 1000);
+  const cleanupStatements = [
+    { label: "profile_activity_logs", sql: `DELETE FROM profile_activity_logs WHERE user_id = $1 AND created_at < $2` },
+    { label: "agent_runs", sql: `DELETE FROM agent_runs WHERE user_id = $1 AND created_at < $2` },
+    { label: "search_profiles", sql: `DELETE FROM search_profiles WHERE user_id = $1 AND created_at < $2` },
+    { label: "activity_events", sql: `DELETE FROM activity_events WHERE user_id = $1 AND created_at < $2` },
+    { label: "applications", sql: `DELETE FROM applications WHERE user_id = $1 AND created_at < $2` },
+    { label: "documents", sql: `DELETE FROM documents WHERE user_id = $1 AND created_at < $2` },
+    { label: "ai_runs", sql: `DELETE FROM ai_runs WHERE user_id = $1 AND created_at < $2` },
+    { label: "job_score_runs", sql: `DELETE FROM job_score_runs WHERE user_id = $1 AND created_at < $2` },
+    { label: "user_job_states", sql: `DELETE FROM user_job_states WHERE user_id = $1 AND created_at < $2` },
+    { label: "gmail_accounts", sql: `DELETE FROM gmail_accounts WHERE user_id = $1 AND created_at < $2` },
+    { label: "master_resume_imports", sql: `DELETE FROM master_resume_imports WHERE user_id = $1 AND created_at < $2` },
+    { label: "master_resumes", sql: `DELETE FROM master_resumes WHERE user_id = $1 AND created_at < $2` },
+    { label: "user_credit_ledger", sql: `DELETE FROM user_credit_ledger WHERE user_id = $1 AND created_at < $2` },
+    { label: "user_skills", sql: `DELETE FROM user_skills WHERE user_id = $1 AND created_at < $2` },
+  ] as const;
+
   for (const user of users.rows) {
-    const cutoffExpr = `NOW() - INTERVAL '${DEMO_WINDOW_HOURS} hours'`;
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(`DELETE FROM profile_activity_logs WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]).catch(() => {});
-      await client.query(`DELETE FROM agent_runs WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]).catch(() => {});
-      await client.query(`DELETE FROM search_profiles WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]).catch(() => {});
-      await client.query(`DELETE FROM activity_events WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM applications WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM documents WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM ai_runs WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM job_score_runs WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM user_job_states WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM gmail_accounts WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM master_resume_imports WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM master_resumes WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM user_credit_ledger WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query(`DELETE FROM user_skills WHERE user_id = $1 AND created_at < ${cutoffExpr}`, [user.id]);
-      await client.query("COMMIT");
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {});
-      console.error("[demo-user] Cleanup failed:", (err as Error).message);
-    } finally {
-      client.release();
+    let deletedRows = 0;
+
+    for (const statement of cleanupStatements) {
+      try {
+        const result = await pool.query(statement.sql, [user.id, cutoff]);
+        deletedRows += result.rowCount ?? 0;
+      } catch (err) {
+        console.error(
+          `[demo-user] Cleanup failed for ${statement.label}:`,
+          (err as Error).message
+        );
+      }
+    }
+
+    if (deletedRows > 0) {
+      console.log(`[demo-user] Removed ${deletedRows} expired demo rows for user ${user.id}`);
     }
   }
 

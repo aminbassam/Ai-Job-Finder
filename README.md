@@ -559,6 +559,7 @@ Migrations in `db/migrations/` apply automatically on every backend startup (ide
 | `JWT_SECRET` | *(required)* | Generate: `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"` |
 | `JWT_EXPIRES_IN` | `7d` | Token expiry |
 | `CORS_ORIGIN` | `http://localhost:5678` | Allowed frontend origin |
+| `TRUST_PROXY` | `1` in production, `false` in dev | Express proxy trust setting for reverse proxies like Nginx |
 | `APP_URL` | `http://localhost:5678` | Used in email links |
 | `SEED_ADMIN_EMAIL` | `admin@local.jobflow.test` | Optional local admin email used by `npm run db:seed` |
 | `SEED_ADMIN_PASSWORD` | *(generated if blank)* | Optional local admin password used by `npm run db:seed` |
@@ -597,13 +598,20 @@ Migrations in `db/migrations/` apply automatically on every backend startup (ide
 ## Production Deployment
 
 1. Build frontend: `npm run build` → deploy `dist/` to Vercel / Netlify / CDN
-2. Deploy backend to Railway / Render / Fly.io / ECS
-3. Provision managed PostgreSQL (Supabase, Neon, RDS)
-4. Set all environment variables in your platform
-5. Run seed once: `npm run db:seed`
+2. Provision managed PostgreSQL (Supabase, Neon, RDS)
+3. Set backend environment variables in `backend/.env`
+4. On your VPS, deploy the backend only as the `deploy` user:
+   `su - deploy`
+   `cd /home/deploy/jobfinder`
+   `git pull origin Ai-Job-Finder-Production`
+   `./scripts/deploy-backend-production.sh`
+5. Persist the `deploy` user's PM2 process list only:
+   `pm2 save`
 6. Set `VITE_API_URL` to your production API URL
 
 The job agent scheduler starts automatically with the server process — no separate worker needed.
+
+For this repo, production PM2 should always come from `backend/ecosystem.config.cjs` and should never be started as `root`.
 
 ---
 

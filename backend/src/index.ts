@@ -28,6 +28,25 @@ import { ensureDemoUserAndSeedData } from "./services/demo-user";
 const app = express();
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 
+function resolveTrustProxy(): boolean | number | string {
+  const configured = process.env.TRUST_PROXY?.trim();
+  if (!configured) {
+    return (process.env.NODE_ENV ?? "development") === "production" ? 1 : false;
+  }
+
+  if (configured === "true") return true;
+  if (configured === "false") return false;
+
+  const hopCount = Number.parseInt(configured, 10);
+  if (Number.isInteger(hopCount) && hopCount >= 0) {
+    return hopCount;
+  }
+
+  return configured;
+}
+
+app.set("trust proxy", resolveTrustProxy());
+
 // ── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet());
 
@@ -614,6 +633,7 @@ applyMigrations()
       console.log(`JobFlow API running on http://localhost:${PORT}`);
       console.log(`  Environment : ${process.env.NODE_ENV ?? "development"}`);
       console.log(`  CORS origin : ${process.env.CORS_ORIGIN ?? "http://localhost:5678"}`);
+      console.log(`  Trust proxy : ${String(app.get("trust proxy"))}`);
     });
     startScheduler();
   });
