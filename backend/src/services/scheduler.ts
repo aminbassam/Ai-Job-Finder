@@ -11,6 +11,33 @@ import { PipelineProfile, runPipeline } from "./pipeline";
 import { syncAllConnectedGmailAccounts } from "./gmail-linkedin-ingestion";
 import { cleanupExpiredDemoUserData } from "./demo-user";
 
+type SchedulerTaskName = "profiles" | "gmail" | "demoCleanup";
+
+const runningTasks: Record<SchedulerTaskName, boolean> = {
+  profiles: false,
+  gmail: false,
+  demoCleanup: false,
+};
+
+async function runTask(name: SchedulerTaskName, task: () => Promise<void>): Promise<void> {
+  if (runningTasks[name]) {
+    console.warn(`[scheduler] Skipping ${name}; previous run is still in progress.`);
+    return;
+  }
+
+  runningTasks[name] = true;
+  const startedAt = Date.now();
+  try {
+    await task();
+  } finally {
+    runningTasks[name] = false;
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= 5_000) {
+      console.log(`[scheduler] ${name} finished in ${elapsedMs}ms`);
+    }
+  }
+}
+
 function nextWeekdayAtEight(now: Date): Date {
   const next = new Date(now);
   next.setDate(next.getDate() + 1);
@@ -161,17 +188,17 @@ async function processDueProfiles(): Promise<void> {
 export function startScheduler(): void {
   // Every 30 minutes
   cron.schedule("*/30 * * * *", () => {
-    processDueProfiles().catch((err) =>
+    runTask("profiles", processDueProfiles).catch((err) =>
       console.error("[scheduler] Unhandled error:", err)
     );
   });
   cron.schedule("*/15 * * * *", () => {
-    syncAllConnectedGmailAccounts().catch((err) =>
+    runTask("gmail", syncAllConnectedGmailAccounts).catch((err) =>
       console.error("[gmail-sync] Unhandled scheduler error:", err)
     );
   });
   cron.schedule("0 * * * *", () => {
-    cleanupExpiredDemoUserData().catch((err) =>
+    runTask("demoCleanup", cleanupExpiredDemoUserData).catch((err) =>
       console.error("[demo-user] Unhandled cleanup error:", err)
     );
   });
