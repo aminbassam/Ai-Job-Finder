@@ -367,7 +367,7 @@ export async function cleanupExpiredDemoUserData(): Promise<void> {
   const cutoff = new Date(Date.now() - DEMO_WINDOW_HOURS * 60 * 60 * 1000);
   const cleanupStatements = [
     { label: "profile_activity_logs", sql: `DELETE FROM profile_activity_logs WHERE user_id = $1 AND created_at < $2` },
-    { label: "agent_runs", sql: `DELETE FROM agent_runs WHERE user_id = $1 AND created_at < $2` },
+    { label: "agent_runs", sql: `DELETE FROM agent_runs WHERE user_id = $1 AND started_at < $2` },
     { label: "search_profiles", sql: `DELETE FROM search_profiles WHERE user_id = $1 AND created_at < $2` },
     { label: "activity_events", sql: `DELETE FROM activity_events WHERE user_id = $1 AND created_at < $2` },
     { label: "applications", sql: `DELETE FROM applications WHERE user_id = $1 AND created_at < $2` },
